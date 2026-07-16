@@ -1,0 +1,58 @@
+.dialog {
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  padding: 0;
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-lg);
+  width: min(420px, 92vw);
+}
+
+.dialog::backdrop {
+  background: color-mix(in srgb, black 45%, transparent);
+}
+
+.body {
+  padding: var(--space-6);
+}
+
+.title {
+  font-size: 17px;
+  margin: 0 0 8px;
+}
+
+.description {
+  margin: 0;
+  opacity: 0.75;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: var(--space-6);
+}
+
+.button {
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-divider);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 13.5px;
+}
+
+.buttonDanger {
+  composes: button;
+  background: var(--status-bad);
+  border-color: var(--status-bad);
+  color: white;
+}
+
+.buttonPrimary {
+  composes: button;
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-bg);
+}

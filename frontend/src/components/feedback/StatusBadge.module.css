@@ -1,0 +1,30 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ok {
+  color: var(--status-ok);
+  background: var(--status-ok-bg);
+}
+
+.warn {
+  color: var(--status-warn);
+  background: var(--status-warn-bg);
+}
+
+.bad {
+  color: var(--status-bad);
+  background: var(--status-bad-bg);
+}
+
+.neutral {
+  color: var(--color-text);
+  background: var(--color-neutral-200);
+}
