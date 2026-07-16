@@ -1,0 +1,3 @@
+# Local backup/export artifacts (git bundle, patches, diffs, source tarball).
+# Generated on demand; not part of the tracked source.
+exports/
