@@ -1,3 +1,20 @@
 # Local backup/export artifacts (git bundle, patches, diffs, source tarball).
 # Generated on demand; not part of the tracked source.
 exports/
+
+# Local Python environments and secrets.
+.venv/
+backend/.venv/
+.env
+backend/.env
+
+# Python caches and test artifacts.
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
