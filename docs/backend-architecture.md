@@ -41,7 +41,7 @@ The API service must:
 CimaSim should expose three distinct health surfaces:
 
 - `GET /healthz`: internal liveness only. It requires no authentication, must be reachable only from loopback or a private internal network, does not check dependencies, and returns only `status`, `service`, and `version`.
-- `GET /readyz`: internal readiness only. It requires no public exposure, checks critical dependencies such as the metadata store and queue, and returns `503` when any critical dependency is unavailable.
+- `GET /readyz`: internal readiness only. It requires no public exposure. In the first backend implementation phase it checks only critical authentication configuration because metadata store and queue services do not exist yet, and returns `503` when that configuration is unavailable.
 - `GET /api/health`: authenticated frontend health. It is protected by Cloudflare Access, returns limited UI-safe status, and must not reveal topology, host paths, internal versions, dependency names, queue backends, or sensitive configuration.
 
 `/healthz` and `/readyz` must not be exposed through Cloudflare public routes. They should be bound to loopback or an internal CimaSim-only network.

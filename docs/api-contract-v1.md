@@ -141,7 +141,7 @@ Response `200 OK`:
 
 ## GET /readyz
 
-Internal readiness endpoint. It is unauthenticated, must be reachable only by loopback or a private internal network, and must not be exposed publicly. It checks critical dependencies.
+Internal readiness endpoint. It is unauthenticated, must be reachable only by loopback or a private internal network, and must not be exposed publicly. In the first backend implementation phase it checks only critical authentication configuration because metadata storage and queue services do not exist yet.
 
 Response `200 OK`:
 
@@ -150,8 +150,7 @@ Response `200 OK`:
   "status": "ready",
   "service": "cimasim-api",
   "dependencies": {
-    "metadata_store": "ok",
-    "queue": "ok"
+    "auth_configuration": "ok"
   }
 }
 ```
@@ -163,8 +162,7 @@ Response `503 Service Unavailable`:
   "status": "not_ready",
   "service": "cimasim-api",
   "dependencies": {
-    "metadata_store": "ok",
-    "queue": "unavailable"
+    "auth_configuration": "unavailable"
   }
 }
 ```
