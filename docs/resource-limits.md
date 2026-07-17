@@ -5,11 +5,18 @@
 | Resource | Initial limit | Enforcement point |
 |---|---:|---|
 | Active jobs per user | 2 | API quota check and worker lease accounting |
+| Global queued jobs | 20 | API quota check before enqueue |
 | Sweep simulations per job | 100 | API validation and worker validation |
 | Wall clock time per job | 30 minutes | Worker timeout and process group termination |
-| RAM per worker | 8 GB | cgroup, systemd, or container memory limit |
-| Total CimaSim CPU threads | 8 to 16 | Worker pool configuration and host reservation |
+| Validation-phase workers | 1 concurrent worker | Worker pool configuration |
+| Validation-phase CPU | 2 total CimaSim threads | Worker pool and host reservation |
+| Validation-phase RAM | 2 GB total | cgroup, systemd, or container memory limit |
+| Pilot simulation workers | 2 concurrent workers | Worker pool configuration |
+| Pilot RAM per worker | 8 GB | cgroup, systemd, or container memory limit |
+| Pilot total worker RAM | 16 GB | global worker budget |
+| Pilot total CimaSim CPU threads | 8 to 16 | Worker pool configuration and host reservation |
 | Storage per user | 1 GB | API quota check and artifact storage accounting |
+| Global retained artifacts | 100 GB | artifact storage accounting and deployment config |
 | Retention | 30 days | Scheduled cleanup task |
 | Netlist size | 256 KB | API request validation |
 | Uploaded support files per job | 20 files | API and worker validation |
@@ -20,11 +27,30 @@
 | Total result bytes per job | 500 MB | Worker output monitoring and artifact store |
 | Log bytes returned per request | 256 KB | API pagination |
 
-These defaults are intentionally conservative because the HP Z8 also runs Apollo PACS/DICOM. CimaSim should reserve enough host capacity so Apollo remains stable during CimaSim load.
+These defaults are intentionally conservative because the HP Z8 also runs Apollo PACS/DICOM. CimaSim must reserve explicit CPU, RAM, and disk capacity for Apollo and the operating system. New jobs must be rejected when global CimaSim capacity is exhausted, even if the requesting user is still under their personal quota.
+
+## Global Capacity Phases
+
+Validation-only phase:
+
+- 1 concurrent worker;
+- 2 total CimaSim CPU threads;
+- 2 GB total CimaSim worker RAM;
+- maximum 20 jobs globally in queue.
+
+Pilot real-simulation phase:
+
+- maximum 2 concurrent workers;
+- maximum 8 GB RAM per worker;
+- maximum 16 GB total worker RAM;
+- global CPU budget of 8 to 16 threads;
+- no increase without load testing and explicit Apollo health verification.
+
+The validation-only limits are the active Phase 1 default. Pilot limits are ceilings for a later controlled rollout, not permission to enable arbitrary simulation execution.
 
 ## CPU
 
-CimaSim should use a fixed worker concurrency configuration and a global CPU budget of 8 to 16 total threads. Workers should not auto-detect and consume all host cores.
+CimaSim should use a fixed worker concurrency configuration. The validation phase is limited to 2 total CimaSim CPU threads. The later pilot phase may use 8 to 16 total threads only after load testing and Apollo verification. Workers should not auto-detect and consume all host cores.
 
 Recommended controls:
 
@@ -35,7 +61,7 @@ Recommended controls:
 
 ## Memory
 
-Each worker should be limited to 8 GB RAM. Memory enforcement should happen outside application code where possible, with application monitoring as a secondary signal.
+Validation-phase workers have a 2 GB total RAM budget. Pilot simulation workers may use up to 8 GB each with a 16 GB global worker budget. Memory enforcement should happen outside application code where possible, with application monitoring as a secondary signal.
 
 Recommended controls:
 
@@ -70,6 +96,13 @@ Later execution must use fixed executable paths and argument lists with `shell=F
 ## Storage and Retention
 
 Each user receives 1 GB of retained storage. Artifacts should be removed after 30 days unless a future policy grants explicit extension.
+
+The artifact store should also enforce:
+
+- warning watermark, initially 70 percent of the configured CimaSim artifact capacity;
+- rejection watermark, initially 85 percent of configured CimaSim artifact capacity;
+- global retained artifact limit, initially 100 GB or lower if host capacity review requires it;
+- rejection of new jobs when per-user or global storage capacity is exhausted.
 
 Cleanup rules:
 

@@ -23,7 +23,7 @@ Terminal states:
 |---|---|---|
 | none | `queued` | API accepts a new job after identity, quota, and request validation. |
 | `queued` | `validating` | Worker claims the job. |
-| `queued` | `cancelled` | User or admin cancels before validation starts. |
+| `queued` | `cancelled` | Queue controller or worker confirms a prior cancellation request before validation starts. |
 | `validating` | `running` | Input validation passes and execution is permitted. |
 | `validating` | `failed` | Validation rejects unsafe, unsupported, or malformed input. |
 | `validating` | `cancelled` | Cancellation request is honored during validation. |
@@ -48,12 +48,17 @@ Terminal states:
 
 ## Cancellation Semantics
 
-Cancellation is best effort until a terminal state is recorded.
+Cancellation is requested through `POST /api/jobs/{job_id}/cancel`. It is best effort until the worker records a terminal state.
 
-- Cancelling `queued` jobs should be immediate.
+- Cancelling `queued` jobs may be confirmed quickly by the queue or worker controller.
 - Cancelling `validating` jobs should stop validation before execution.
-- Cancelling `running` jobs should terminate the process group and mark the job `cancelled` only after cleanup is attempted.
+- Cancelling `running` jobs should terminate the process group.
+- The API records `cancel_requested_at` and returns `202 Accepted`; it does not immediately change the visible state to `cancelled`.
+- The worker records `cancelled` only after termination and controlled cleanup are attempted.
+- Repeated cancel requests are idempotent and return the same cancellation request metadata while the job remains non-terminal.
 - Cancelling terminal jobs is invalid. A later delete operation may remove retained data according to retention policy.
+
+`DELETE /api/jobs/{job_id}` is not a cancellation API. It only deletes retained data for terminal jobs and may return `409 Conflict` while a job is not terminal.
 
 ## Timeout Semantics
 

@@ -23,11 +23,33 @@ FastAPI should expose only API routes under `/api`. The frontend preview remains
 The API service must:
 
 - validate `Cf-Access-Jwt-Assertion` using Cloudflare Access public keys;
-- derive identity from validated JWT claims, not from untrusted identity headers alone;
+- load the exact Cloudflare Access Application Audience AUD from deployment configuration or secret storage for each environment;
+- derive `user_id` from the validated stable `sub` claim;
+- derive `email` only from a validated JWT claim;
+- resolve roles and administrator status from CimaSim configuration or internal storage, not from arbitrary headers or untrusted claims;
 - reject oversized payloads before parsing large inputs;
+- accept only `application/json` for mutable API endpoints in the first version;
+- validate `Origin` when browser-originating mutable requests are accepted;
 - return stable JSON errors;
 - enforce authorization on every job and artifact lookup;
+- return `404` for resources owned by other users to avoid enumeration;
 - never accept shell commands or simulator executable paths from users.
+
+## Health Endpoints
+
+CimaSim should expose three distinct health surfaces:
+
+- `GET /healthz`: internal liveness only. It requires no authentication, must be reachable only from loopback or a private internal network, does not check dependencies, and returns only `status`, `service`, and `version`.
+- `GET /readyz`: internal readiness only. It requires no public exposure, checks critical dependencies such as the metadata store and queue, and returns `503` when any critical dependency is unavailable.
+- `GET /api/health`: authenticated frontend health. It is protected by Cloudflare Access, returns limited UI-safe status, and must not reveal topology, host paths, internal versions, dependency names, queue backends, or sensitive configuration.
+
+`/healthz` and `/readyz` must not be exposed through Cloudflare public routes. They should be bound to loopback or an internal CimaSim-only network.
+
+## HTTP Security Boundary
+
+The frontend and API should be served from the same origin for the first backend release. If CORS is ever required, the API must not use `Access-Control-Allow-Origin: *`; it should allow only explicitly configured origins.
+
+The API must not trust `X-Forwarded-*` headers unless the request came from the controlled reverse proxy or tunnel path. Logs must exclude tokens, cookies, complete netlists, private host paths, and sensitive headers.
 
 ## Queue and Worker Model
 
@@ -60,7 +82,7 @@ These paths must be owned by a dedicated CimaSim user and group, for example `ci
 
 1. Browser reaches `sim.cimasim.online` through Cloudflare Access.
 2. Cloudflare Access authenticates the user and forwards the request.
-3. The frontend calls backend `/api` routes.
+3. The frontend calls backend `/api` routes from the same origin.
 4. FastAPI validates the Cloudflare Access JWT and maps claims to a CimaSim identity.
 5. FastAPI checks payload size, schema, authorization, quotas, and idempotency keys.
 6. FastAPI writes job metadata and queues accepted jobs.
@@ -95,6 +117,7 @@ Current preview:
 Future backend:
 
 - FastAPI should bind only to loopback or a private CimaSim-only network.
+- `/healthz` and `/readyz` should be reachable only on loopback or that private internal network.
 - The backend must not use `host network`.
 - Containers must not mount `/var/run/docker.sock`.
 - Containers must not run with `privileged: true`.
@@ -141,7 +164,9 @@ Logs must not include:
 
 Initial observability should include:
 
-- `/api/health` for API liveness;
+- `/healthz` for internal liveness;
+- `/readyz` for internal dependency readiness;
+- `/api/health` for limited authenticated frontend status;
 - queue depth;
 - active jobs by state;
 - worker availability;

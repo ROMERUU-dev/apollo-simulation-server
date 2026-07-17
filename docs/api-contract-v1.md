@@ -2,7 +2,9 @@
 
 ## Overview
 
-All API routes are rooted at `/api` and return JSON unless an artifact download endpoint later states otherwise. The backend must validate Cloudflare Access JWTs from `Cf-Access-Jwt-Assertion` and derive identity from validated claims.
+Authenticated API routes are rooted at `/api` and return JSON unless an artifact download endpoint states otherwise. Internal service health routes are outside `/api`.
+
+The backend must validate Cloudflare Access JWTs from `Cf-Access-Jwt-Assertion` and derive identity from validated claims. The frontend and API should be served from the same origin for v1. Mutable v1 endpoints accept only `application/json`.
 
 Phase 1 does not execute arbitrary netlists. `POST /api/jobs` accepts job creation requests for validation and lifecycle handling only.
 
@@ -12,22 +14,42 @@ Validated identity is represented internally as:
 
 ```json
 {
-  "user_id": "cf:example-user-id",
+  "user_id": "cf-sub:4f7f2c1b-8f3d-4db7-84f0-62d890000000",
   "email": "user@example.com",
   "name": "Example User",
   "groups": ["cimasim-users"],
+  "roles": ["user"],
   "is_admin": false
 }
 ```
+
+Identity rules:
+
+- `user_id` is derived from the stable `sub` claim after JWT validation.
+- `email` is derived only from a validated JWT claim.
+- `groups` is optional and exists only when Cloudflare Access is explicitly configured to emit a groups claim.
+- `roles` and `is_admin` are resolved by CimaSim configuration or internal storage after identity validation.
+- `is_admin` must not be trusted directly from a request header or arbitrary JWT claim.
+- the exact Cloudflare Access Application Audience AUD is loaded from deployment configuration or secret storage.
+- staging and production AUD values must be configured explicitly and separately.
+- the raw JWT is never persisted.
 
 Required JWT validation:
 
 - verify signature using Cloudflare Access public keys;
 - verify issuer;
-- verify audience;
+- verify exact configured audience;
 - verify expiration;
-- map stable subject to `user_id`;
+- verify not-before when the claim exists;
 - do not persist the raw JWT.
+
+HTTP security rules:
+
+- do not use `Access-Control-Allow-Origin: *`;
+- validate `Origin` for browser-originating mutable requests when applicable;
+- trust `X-Forwarded-*` only from the controlled proxy path;
+- return `404 Not Found` for resources that do not exist or are not visible to the authenticated user;
+- logs must not include tokens, cookies, full netlists, private host paths, or sensitive headers.
 
 ## Common Error Shape
 
@@ -38,7 +60,7 @@ Required JWT validation:
     "message": "The request body is invalid.",
     "details": [
       {
-        "field": "netlist.size_bytes",
+        "field": "netlist.content",
         "reason": "exceeds_limit"
       }
     ],
@@ -101,9 +123,9 @@ Rules:
 - different user, same key: independent idempotency record;
 - keys expire after 24 hours.
 
-## GET /api/health
+## GET /healthz
 
-Returns service health without requiring user identity if the route is used for internal liveness. A separate readiness mode may check dependencies.
+Internal liveness endpoint. It is unauthenticated, must be reachable only by loopback or a private internal network, and must not be exposed publicly. It does not check dependencies.
 
 Response `200 OK`:
 
@@ -111,7 +133,20 @@ Response `200 OK`:
 {
   "status": "ok",
   "service": "cimasim-api",
-  "version": "v1",
+  "version": "v1"
+}
+```
+
+## GET /readyz
+
+Internal readiness endpoint. It is unauthenticated, must be reachable only by loopback or a private internal network, and must not be exposed publicly. It checks critical dependencies.
+
+Response `200 OK`:
+
+```json
+{
+  "status": "ready",
+  "service": "cimasim-api",
   "dependencies": {
     "metadata_store": "ok",
     "queue": "ok"
@@ -123,7 +158,7 @@ Response `503 Service Unavailable`:
 
 ```json
 {
-  "status": "degraded",
+  "status": "not_ready",
   "service": "cimasim-api",
   "dependencies": {
     "metadata_store": "ok",
@@ -131,6 +166,39 @@ Response `503 Service Unavailable`:
   }
 }
 ```
+
+## GET /api/health
+
+Authenticated frontend health endpoint protected by Cloudflare Access. It returns limited UI-safe status and must not reveal topology, internal versions, host paths, queue backend, database type, network names, or sensitive configuration.
+
+Response `200 OK`:
+
+```json
+{
+  "status": "ok",
+  "service": "cimasim",
+  "features": {
+    "job_submission": "validation_only",
+    "artifact_downloads": "available"
+  }
+}
+```
+
+Response `503 Service Unavailable`:
+
+```json
+{
+  "status": "degraded",
+  "service": "cimasim",
+  "features": {
+    "job_submission": "temporarily_unavailable"
+  }
+}
+```
+
+Errors:
+
+- `401 Unauthorized`.
 
 ## GET /api/me
 
@@ -140,10 +208,11 @@ Response `200 OK`:
 
 ```json
 {
-  "user_id": "cf:example-user-id",
+  "user_id": "cf-sub:4f7f2c1b-8f3d-4db7-84f0-62d890000000",
   "email": "user@example.com",
   "name": "Example User",
   "groups": ["cimasim-users"],
+  "roles": ["user"],
   "is_admin": false,
   "limits": {
     "active_jobs_per_user": 2,
@@ -174,7 +243,7 @@ Request:
   "netlist": {
     "filename": "rc_lowpass.cir",
     "content": "* RC low-pass\n.end\n",
-    "size_bytes": 19
+    "client_reported_size_bytes": 19
   },
   "sweep": {
     "parameters": [
@@ -187,6 +256,8 @@ Request:
 }
 ```
 
+`client_reported_size_bytes` is optional and informational only. The backend must calculate the actual netlist size from the UTF-8 bytes of `netlist.content` and apply the 256 KB limit to that calculated value. The backend must not trust client-provided counts, sizes, or checksums for validation or quota enforcement.
+
 Response `201 Created`:
 
 ```json
@@ -195,7 +266,7 @@ Response `201 Created`:
   "state": "queued",
   "created_at": "2026-07-17T21:45:00Z",
   "owner": {
-    "user_id": "cf:example-user-id"
+    "user_id": "cf-sub:4f7f2c1b-8f3d-4db7-84f0-62d890000000"
   },
   "limits": {
     "timeout_seconds": 1800,
@@ -274,8 +345,7 @@ Response `200 OK`:
 Errors:
 
 - `401 Unauthorized`.
-- `403 Forbidden`.
-- `404 Not Found`.
+- `404 Not Found` for missing jobs or jobs not visible to the user.
 
 ## GET /api/jobs/{job_id}/log
 
@@ -307,8 +377,7 @@ Response `200 OK`:
 Errors:
 
 - `401 Unauthorized`.
-- `403 Forbidden`.
-- `404 Not Found`.
+- `404 Not Found` for missing jobs or jobs not visible to the user.
 - `400 Bad Request` for invalid cursor or size.
 
 ## GET /api/jobs/{job_id}/artifacts
@@ -344,28 +413,101 @@ Response `200 OK`:
 Errors:
 
 - `401 Unauthorized`.
-- `403 Forbidden`.
-- `404 Not Found`.
+- `404 Not Found` for missing jobs or jobs not visible to the user.
 
-## DELETE /api/jobs/{job_id}
+## GET /api/jobs/{job_id}/artifacts/{artifact_id}
 
-Cancels a non-terminal job or requests deletion of retained job data depending on state.
+Downloads one artifact visible to the authenticated user. Authorization is limited to the job owner or a CimaSim administrator resolved through internal role configuration.
 
-Response `202 Accepted` for cancellation:
+Response `200 OK`:
 
-```json
-{
-  "job_id": "job_01JZ7X8Y2Q4SQ6Q9W4V4G6R2YE",
-  "state": "cancelled",
-  "requested_at": "2026-07-17T21:50:00Z"
-}
+Headers:
+
+```http
+Content-Type: application/json
+Content-Disposition: attachment; filename="validation-report.json"
+X-Content-Type-Options: nosniff
+Content-Length: 2048
 ```
 
-Response `204 No Content` for deletion of an already terminal retained job.
+Rules:
+
+- return `404 Not Found` for nonexistent artifacts, nonexistent jobs, or resources not visible to the user;
+- never reveal host paths in headers, errors, logs, or response bodies;
+- sanitize `filename` for `Content-Disposition`;
+- enforce the configured single artifact size limit, initially 100 MB;
+- allow only explicit downloadable content types in the first version;
+- do not serve HTML, SVG, or JavaScript inline in the first version;
+- rate limit repeated downloads.
+
+Initial downloadable content type allowlist:
+
+- `application/json`
+- `text/plain`
+- `text/csv`
+- `application/octet-stream`
+- `application/gzip`
+- `application/zip`
+
+Range semantics:
+
+- single byte ranges may be supported for artifacts that have a known immutable size;
+- multiple ranges are not supported in v1;
+- invalid or unsatisfiable ranges return `416 Range Not Satisfiable`;
+- Range responses must still include `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff`;
+- Range requests count toward download rate limits.
 
 Errors:
 
 - `401 Unauthorized`.
-- `403 Forbidden`.
 - `404 Not Found`.
-- `409 Conflict` when cancellation is no longer possible.
+- `416 Range Not Satisfiable`.
+- `429 Too Many Requests`.
+
+## POST /api/jobs/{job_id}/cancel
+
+Requests cancellation for a non-terminal visible job. The operation is idempotent. The API records `cancel_requested_at` and returns `202 Accepted`; it does not immediately change the visible state to `cancelled`. The worker confirms `cancelled` only after stopping work and attempting controlled cleanup.
+
+Response `202 Accepted`:
+
+```json
+{
+  "job_id": "job_01JZ7X8Y2Q4SQ6Q9W4V4G6R2YE",
+  "state": "running",
+  "cancel_requested_at": "2026-07-17T21:50:00Z",
+  "cancellation": {
+    "status": "requested"
+  }
+}
+```
+
+Repeated response `202 Accepted`:
+
+```json
+{
+  "job_id": "job_01JZ7X8Y2Q4SQ6Q9W4V4G6R2YE",
+  "state": "running",
+  "cancel_requested_at": "2026-07-17T21:50:00Z",
+  "cancellation": {
+    "status": "already_requested"
+  }
+}
+```
+
+Errors:
+
+- `401 Unauthorized`.
+- `404 Not Found`.
+- `409 Conflict` when the job is already terminal.
+
+## DELETE /api/jobs/{job_id}
+
+Deletes retained data for a terminal visible job. It is not used for cancellation.
+
+Response `204 No Content` when deletion completes.
+
+Errors:
+
+- `401 Unauthorized`.
+- `404 Not Found`.
+- `409 Conflict` when the job is not terminal.
