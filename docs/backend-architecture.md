@@ -18,7 +18,7 @@ The backend must remain isolated from the Apollo PACS/DICOM deployment. CimaSim 
 
 ## FastAPI Boundary
 
-FastAPI should expose only API routes under `/api`. The frontend preview remains a static Nginx deployment and should call the backend through a separate internal backend port when the backend is introduced.
+FastAPI should expose authenticated application routes under `/api`. The frontend preview remains a static Nginx deployment and should call the backend through a separate internal backend port when the backend is introduced.
 
 The API service must:
 
@@ -26,6 +26,7 @@ The API service must:
 - load the exact Cloudflare Access Application Audience AUD from deployment configuration or secret storage for each environment;
 - derive `user_id` from the validated stable `sub` claim;
 - derive `email` only from a validated JWT claim;
+- treat `groups` as optional and available only when Cloudflare Access is explicitly configured to emit them;
 - resolve roles and administrator status from CimaSim configuration or internal storage, not from arbitrary headers or untrusted claims;
 - reject oversized payloads before parsing large inputs;
 - accept only `application/json` for mutable API endpoints in the first version;
@@ -84,7 +85,7 @@ These paths must be owned by a dedicated CimaSim user and group, for example `ci
 2. Cloudflare Access authenticates the user and forwards the request.
 3. The frontend calls backend `/api` routes from the same origin.
 4. FastAPI validates the Cloudflare Access JWT and maps claims to a CimaSim identity.
-5. FastAPI checks payload size, schema, authorization, quotas, and idempotency keys.
+5. FastAPI checks payload size, schema, authorization, quotas, global capacity, and idempotency keys.
 6. FastAPI writes job metadata and queues accepted jobs.
 7. Worker claims a job, creates a per-job temporary directory, validates inputs, and records lifecycle events.
 8. Worker stores permitted artifacts and logs.
@@ -131,6 +132,7 @@ Phase 1 should keep deployment reversible and low blast radius:
 - keep frontend preview unchanged until the API endpoint is ready;
 - deploy CimaSim backend independently from Apollo;
 - use dedicated environment files with no checked-in secrets;
+- configure the exact Access AUD separately for staging and production;
 - validate configuration with read-only commands before rollout;
 - prefer blue/green or side-by-side service introduction where practical;
 - roll back by stopping CimaSim backend services only.
@@ -156,9 +158,9 @@ Logs must not include:
 - Cloudflare Access JWTs;
 - session cookies;
 - API tokens;
-- raw netlist content unless explicitly sanitized and needed for debugging;
+- complete netlist content;
 - Apollo credentials or identifiers;
-- host paths outside approved CimaSim directories.
+- private host paths outside approved CimaSim directories.
 
 ## Observability
 
@@ -174,6 +176,7 @@ Initial observability should include:
 - cancellations and timeouts;
 - artifact storage usage;
 - per-user quota usage;
+- global capacity usage;
 - worker CPU, memory, and disk usage;
 - audit event count.
 
@@ -187,6 +190,7 @@ The backend should recover predictably from:
 - Worker restart: claimed jobs return to `queued`, `failed`, or `timed_out` after lease expiry based on last heartbeat.
 - Queue outage: API returns `503` for job creation while read-only job queries continue if metadata storage is available.
 - Metadata database outage: API returns `503` and workers stop claiming new jobs.
+- Global capacity exhaustion: API rejects new jobs without affecting existing jobs or Apollo.
 - Disk pressure: API rejects new jobs before the artifact or temporary paths are exhausted.
 - Cleanup failure: jobs remain terminal, cleanup is retried by maintenance tasks, and audit logs record the failure.
 
