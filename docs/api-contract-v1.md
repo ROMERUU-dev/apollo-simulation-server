@@ -17,17 +17,18 @@ Validated identity is represented internally as:
   "user_id": "cf-sub:4f7f2c1b-8f3d-4db7-84f0-62d890000000",
   "email": "user@example.com",
   "name": "Example User",
-  "groups": ["cimasim-users"],
   "roles": ["user"],
   "is_admin": false
 }
 ```
 
+An optional `groups` field may be present only when Cloudflare Access is explicitly configured to emit a validated groups claim.
+
 Identity rules:
 
 - `user_id` is derived from the stable `sub` claim after JWT validation.
 - `email` is derived only from a validated JWT claim.
-- `groups` is optional and exists only when Cloudflare Access is explicitly configured to emit a groups claim.
+- `groups` is optional and must not be assumed to exist.
 - `roles` and `is_admin` are resolved by CimaSim configuration or internal storage after identity validation.
 - `is_admin` must not be trusted directly from a request header or arbitrary JWT claim.
 - the exact Cloudflare Access Application Audience AUD is loaded from deployment configuration or secret storage.
@@ -41,6 +42,7 @@ Required JWT validation:
 - verify exact configured audience;
 - verify expiration;
 - verify not-before when the claim exists;
+- derive the stable user identifier from `sub`;
 - do not persist the raw JWT.
 
 HTTP security rules:
@@ -73,12 +75,12 @@ Common status codes:
 
 - `400 Bad Request`: malformed JSON or invalid query parameter.
 - `401 Unauthorized`: missing or invalid Cloudflare Access JWT.
-- `403 Forbidden`: authenticated user lacks access to the resource.
 - `404 Not Found`: resource does not exist or is not visible to the user.
 - `409 Conflict`: invalid lifecycle transition or idempotency conflict.
 - `413 Payload Too Large`: request exceeds size limit.
+- `415 Unsupported Media Type`: mutable endpoint did not receive `application/json`.
 - `422 Unprocessable Entity`: schema-valid request rejected by domain validation.
-- `429 Too Many Requests`: rate or quota exceeded.
+- `429 Too Many Requests`: rate, quota, or global capacity exceeded.
 - `503 Service Unavailable`: queue or metadata store unavailable.
 
 ## Pagination
@@ -105,7 +107,7 @@ Response shape:
 Initial limits:
 
 - JSON request body: 1 MB.
-- Netlist text: 256 KB.
+- Netlist text: 256 KB, calculated from UTF-8 bytes by the server.
 - Job name: 120 characters.
 - Job description: 1,000 characters.
 - Sweep combinations: 100 simulations.
@@ -202,7 +204,7 @@ Errors:
 
 ## GET /api/me
 
-Returns the authenticated user derived from the validated Cloudflare Access JWT.
+Returns the authenticated user derived from the validated Cloudflare Access JWT and CimaSim's internal role mapping.
 
 Response `200 OK`:
 
@@ -211,7 +213,6 @@ Response `200 OK`:
   "user_id": "cf-sub:4f7f2c1b-8f3d-4db7-84f0-62d890000000",
   "email": "user@example.com",
   "name": "Example User",
-  "groups": ["cimasim-users"],
   "roles": ["user"],
   "is_admin": false,
   "limits": {
@@ -221,16 +222,19 @@ Response `200 OK`:
 }
 ```
 
+The optional `groups` field may be returned only when a validated groups claim is configured.
+
 Errors:
 
 - `401 Unauthorized` for missing or invalid JWT.
 
 ## POST /api/jobs
 
-Creates a job request after validation and quota checks. Phase 1 queues validation-only jobs and must not run arbitrary simulator execution.
+Creates a job request after validation, quota, and global capacity checks. Phase 1 queues validation-only jobs and must not run arbitrary simulator execution.
 
 Headers:
 
+- `Content-Type: application/json`.
 - `Idempotency-Key`: recommended.
 
 Request:
@@ -242,8 +246,7 @@ Request:
   "simulator": "ngspice",
   "netlist": {
     "filename": "rc_lowpass.cir",
-    "content": "* RC low-pass\n.end\n",
-    "client_reported_size_bytes": 19
+    "content": "* RC low-pass\n.end\n"
   },
   "sweep": {
     "parameters": [
@@ -256,7 +259,7 @@ Request:
 }
 ```
 
-`client_reported_size_bytes` is optional and informational only. The backend must calculate the actual netlist size from the UTF-8 bytes of `netlist.content` and apply the 256 KB limit to that calculated value. The backend must not trust client-provided counts, sizes, or checksums for validation or quota enforcement.
+The backend calculates the actual netlist size from the UTF-8 bytes of `netlist.content` and applies the 256 KB limit to that calculated value. The backend must not trust client-provided counts, sizes, or checksums for validation or quota enforcement.
 
 Response `201 Created`:
 
@@ -279,8 +282,9 @@ Errors:
 
 - `401 Unauthorized`: invalid identity.
 - `413 Payload Too Large`: netlist or JSON body too large.
+- `415 Unsupported Media Type`: content type is not `application/json`.
 - `422 Unprocessable Entity`: unsupported simulator, unsafe filename, absolute path, symlink, traversal, or sweep too large.
-- `429 Too Many Requests`: active job or queue quota exceeded.
+- `429 Too Many Requests`: active user quota, queue limit, or global capacity exceeded.
 - `503 Service Unavailable`: queue unavailable.
 
 ## GET /api/jobs
@@ -349,7 +353,7 @@ Errors:
 
 ## GET /api/jobs/{job_id}/log
 
-Returns a bounded log window for a visible job. Logs must be sanitized and must not include tokens.
+Returns a bounded log window for a visible job. Logs must be sanitized and must not include tokens, cookies, complete netlists, or private paths.
 
 Query parameters:
 
@@ -451,11 +455,11 @@ Initial downloadable content type allowlist:
 
 Range semantics:
 
-- single byte ranges may be supported for artifacts that have a known immutable size;
-- multiple ranges are not supported in v1;
+- v1 supports at most one byte range for artifacts with a known immutable size;
+- multiple ranges are rejected;
 - invalid or unsatisfiable ranges return `416 Range Not Satisfiable`;
-- Range responses must still include `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff`;
-- Range requests count toward download rate limits.
+- range responses include `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff`, `Accept-Ranges: bytes`, and a valid `Content-Range`;
+- range requests count toward download rate limits.
 
 Errors:
 
@@ -467,6 +471,16 @@ Errors:
 ## POST /api/jobs/{job_id}/cancel
 
 Requests cancellation for a non-terminal visible job. The operation is idempotent. The API records `cancel_requested_at` and returns `202 Accepted`; it does not immediately change the visible state to `cancelled`. The worker confirms `cancelled` only after stopping work and attempting controlled cleanup.
+
+Headers:
+
+- `Content-Type: application/json`.
+
+Request:
+
+```json
+{}
+```
 
 Response `202 Accepted`:
 
@@ -499,6 +513,7 @@ Errors:
 - `401 Unauthorized`.
 - `404 Not Found`.
 - `409 Conflict` when the job is already terminal.
+- `415 Unsupported Media Type` when the request is not `application/json`.
 
 ## DELETE /api/jobs/{job_id}
 
