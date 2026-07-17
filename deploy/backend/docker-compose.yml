@@ -1,0 +1,50 @@
+services:
+  api:
+    build:
+      context: ../..
+      dockerfile: deploy/backend/Dockerfile
+    image: cimasim-backend-api:${CIMASIM_BACKEND_IMAGE_TAG:-dev}
+    container_name: cimasim-backend-api
+    env_file:
+      - ${CIMASIM_BACKEND_ENV_FILE:-/home/romeruu/.config/cimasim/backend.env}
+    environment:
+      CIMASIM_ALLOWED_EMAIL_DOMAINS: '["uabc.edu.mx"]'
+    ports:
+      - "127.0.0.1:8089:8080"
+    networks:
+      - cimasim-backend-net
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid,nodev
+    init: true
+    pids_limit: 128
+    cpus: 2.0
+    mem_limit: 2g
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import sys, urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2); sys.exit(0 if r.status == 200 else 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+networks:
+  cimasim-backend-net:
+    name: cimasim-backend-net
+    driver: bridge
