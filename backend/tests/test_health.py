@@ -1,7 +1,7 @@
 from conftest import AUDIENCE, TEAM_DOMAIN, auth_headers, make_token
 from fastapi.testclient import TestClient
 
-from cimasim_api.config import Settings, get_settings
+from cimasim_api.config import Settings
 from cimasim_api.main import create_app
 
 
@@ -32,7 +32,6 @@ def test_readyz_responds_503_with_incomplete_configuration() -> None:
         enable_docs=False,
     )
     app = create_app(settings)
-    app.dependency_overrides[get_settings] = lambda: settings
 
     with TestClient(app) as client:
         response = client.get("/readyz")
@@ -67,3 +66,38 @@ def test_api_health_returns_limited_authenticated_status(client, key_material) -
     serialized = response.text.lower()
     assert "cimasim.cloudflareaccess.com" not in serialized
     assert "test-audience" not in serialized
+
+
+def test_create_app_custom_settings_control_readyz_without_overrides() -> None:
+    valid_settings = Settings(
+        env="test",
+        cf_team_domain=TEAM_DOMAIN,
+        cf_aud=AUDIENCE,
+        allowed_email_domains=["uabc.edu.mx"],
+    )
+    invalid_settings = Settings(
+        env="test",
+        cf_team_domain=TEAM_DOMAIN,
+        cf_aud="",
+        allowed_email_domains=["uabc.edu.mx"],
+    )
+
+    with TestClient(create_app(valid_settings)) as valid_client:
+        assert valid_client.get("/readyz").status_code == 200
+    with TestClient(create_app(invalid_settings)) as invalid_client:
+        assert invalid_client.get("/readyz").status_code == 503
+
+
+def test_readiness_and_verifier_share_app_settings_instance() -> None:
+    settings = Settings(
+        env="test",
+        cf_team_domain=TEAM_DOMAIN,
+        cf_aud=AUDIENCE,
+        allowed_email_domains=["uabc.edu.mx"],
+    )
+    app = create_app(settings)
+
+    assert app.state.settings is settings
+    assert app.state.auth_verifier.settings is settings
+    with TestClient(app) as client:
+        assert client.get("/readyz").status_code == 200

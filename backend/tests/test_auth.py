@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import threading
+from collections.abc import Iterator
+from types import TracebackType
 
 import httpx
 from conftest import (
@@ -125,6 +128,52 @@ def test_future_not_before_is_rejected(client: TestClient, key_material) -> None
     assert response.status_code == 401
 
 
+def test_valid_not_before_is_accepted(client: TestClient, key_material) -> None:
+    token = make_token(key_material, not_before_delta=-1)
+
+    response = client.get("/api/me", headers=auth_headers(token))
+
+    assert response.status_code == 200
+
+
+def test_audience_list_with_configured_audience_is_accepted(
+    client: TestClient, key_material
+) -> None:
+    token = make_token(key_material, audience=[AUDIENCE])
+
+    response = client.get("/api/me", headers=auth_headers(token))
+
+    assert response.status_code == 200
+
+
+def test_audience_list_without_configured_audience_is_rejected(
+    client: TestClient, key_material
+) -> None:
+    token = make_token(key_material, audience=["other-audience"])
+
+    response = client.get("/api/me", headers=auth_headers(token))
+
+    assert response.status_code == 401
+
+
+def test_audience_list_with_multiple_values_is_accepted(client: TestClient, key_material) -> None:
+    token = make_token(key_material, audience=["other-audience", AUDIENCE])
+
+    response = client.get("/api/me", headers=auth_headers(token))
+
+    assert response.status_code == 200
+
+
+def test_service_token_without_email_and_blank_sub_is_rejected(
+    client: TestClient, key_material
+) -> None:
+    token = make_token(key_material, subject="", email=None)
+
+    response = client.get("/api/me", headers=auth_headers(token))
+
+    assert response.status_code == 401
+
+
 def test_unknown_kid_is_rejected_after_refresh(settings: Settings, key_material, jwks) -> None:
     fetcher = FakeJwksFetcher([jwks, jwks])
     client = make_client(settings, fetcher)
@@ -193,6 +242,20 @@ def test_jwks_refresh_after_unknown_kid_accepts_new_key(settings: Settings, key_
     assert fetcher.calls == 2
 
 
+def test_invalid_refresh_does_not_replace_valid_cached_jwks(
+    settings: Settings, key_material, jwks
+) -> None:
+    fetcher = FakeJwksFetcher([jwks, {"not_keys": []}])
+    client = make_client(settings, fetcher)
+    valid_token = make_token(key_material)
+    unknown_kid_token = make_token(key_material, kid="unknown")
+
+    assert client.get("/api/me", headers=auth_headers(valid_token)).status_code == 200
+    assert client.get("/api/me", headers=auth_headers(unknown_kid_token)).status_code == 401
+    assert client.get("/api/me", headers=auth_headers(valid_token)).status_code == 200
+    assert fetcher.calls == 2
+
+
 def test_jwks_cache_avoids_network_call_per_valid_request(
     client: TestClient, key_material, fetcher
 ) -> None:
@@ -206,104 +269,272 @@ def test_jwks_cache_avoids_network_call_per_valid_request(
     assert fetcher.calls == 1
 
 
+class FakeStreamResponse:
+    def __init__(
+        self,
+        chunks: list[bytes],
+        *,
+        status_error: bool = False,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        self.chunks = chunks
+        self.status_error = status_error
+        self.headers = headers or {}
+        self.closed = False
+
+    def __enter__(self) -> FakeStreamResponse:
+        return self
+
+    def __exit__(
+        self,
+        _exc_type: type[BaseException] | None,
+        _exc: BaseException | None,
+        _traceback: TracebackType | None,
+    ) -> None:
+        self.closed = True
+
+    def raise_for_status(self) -> None:
+        if self.status_error:
+            raise httpx.HTTPStatusError(
+                "failed",
+                request=httpx.Request("GET", "https://example.test"),
+                response=httpx.Response(500),
+            )
+
+    def iter_bytes(self) -> Iterator[bytes]:
+        yield from self.chunks
+
+
+class FakeStreamClient:
+    def __init__(self, response: FakeStreamResponse) -> None:
+        self.response = response
+        self.timeout: float | None = None
+        self.follow_redirects: bool | None = None
+        self.closed = False
+
+    def __call__(self, timeout: float, follow_redirects: bool) -> FakeStreamClient:
+        self.timeout = timeout
+        self.follow_redirects = follow_redirects
+        return self
+
+    def __enter__(self) -> FakeStreamClient:
+        return self
+
+    def __exit__(
+        self,
+        _exc_type: type[BaseException] | None,
+        _exc: BaseException | None,
+        _traceback: TracebackType | None,
+    ) -> None:
+        self.closed = True
+
+    def stream(self, method: str, url: str) -> FakeStreamResponse:
+        assert method == "GET"
+        assert url == "https://cimasim.cloudflareaccess.com/cdn-cgi/access/certs"
+        return self.response
+
+
 def test_fetch_jwks_uses_configured_url_timeout_and_size(monkeypatch) -> None:
-    class FakeResponse:
-        content = b'{"keys":[]}'
-
-        def raise_for_status(self) -> None:
-            return None
-
-        def json(self):
-            return {"keys": []}
-
-    class FakeClient:
-        def __init__(self, timeout: float, follow_redirects: bool) -> None:
-            self.timeout = timeout
-            self.follow_redirects = follow_redirects
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args) -> None:
-            return None
-
-        def get(self, url: str):
-            assert url == "https://cimasim.cloudflareaccess.com/cdn-cgi/access/certs"
-            assert self.timeout == 0.5
-            assert self.follow_redirects is False
-            return FakeResponse()
-
-    monkeypatch.setattr("cimasim_api.auth.verifier.httpx.Client", FakeClient)
+    response = FakeStreamResponse([b'{"keys":[]}'])
+    client = FakeStreamClient(response)
+    monkeypatch.setattr("cimasim_api.auth.verifier.httpx.Client", client)
 
     payload = fetch_jwks("https://cimasim.cloudflareaccess.com/cdn-cgi/access/certs", 0.5, 100)
 
     assert payload == {"keys": []}
+    assert client.timeout == 0.5
+    assert client.follow_redirects is False
+    assert client.closed is True
+    assert response.closed is True
 
 
-def test_fetch_jwks_rejects_oversized_response(monkeypatch) -> None:
-    class FakeResponse:
-        content = b'{"keys":[]}'
-
-        def raise_for_status(self) -> None:
-            return None
-
-        def json(self):
-            return {"keys": []}
-
-    class FakeClient:
-        def __init__(self, timeout: float, follow_redirects: bool) -> None:
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args) -> None:
-            return None
-
-        def get(self, _url: str):
-            return FakeResponse()
-
-    monkeypatch.setattr("cimasim_api.auth.verifier.httpx.Client", FakeClient)
+def test_fetch_jwks_rejects_excessive_content_length(monkeypatch) -> None:
+    response = FakeStreamResponse([b"{}"], headers={"Content-Length": "101"})
+    monkeypatch.setattr("cimasim_api.auth.verifier.httpx.Client", FakeStreamClient(response))
 
     try:
-        fetch_jwks("https://cimasim.cloudflareaccess.com/cdn-cgi/access/certs", 0.5, 1)
+        fetch_jwks("https://cimasim.cloudflareaccess.com/cdn-cgi/access/certs", 0.5, 100)
     except ValueError as exc:
         assert str(exc) == "jwks_response_too_large"
     else:
         raise AssertionError("oversized JWKS was accepted")
 
 
-def test_fetch_jwks_rejects_non_object_payload(monkeypatch) -> None:
-    class FakeResponse:
-        content = b"[]"
+def test_fetch_jwks_rejects_chunked_response_over_limit(monkeypatch) -> None:
+    response = FakeStreamResponse([b'{"keys":', b"[]", b"}"])
+    monkeypatch.setattr("cimasim_api.auth.verifier.httpx.Client", FakeStreamClient(response))
 
-        def raise_for_status(self) -> None:
-            return None
+    try:
+        fetch_jwks("https://cimasim.cloudflareaccess.com/cdn-cgi/access/certs", 0.5, 10)
+    except ValueError as exc:
+        assert str(exc) == "jwks_response_too_large"
+    else:
+        raise AssertionError("oversized JWKS was accepted")
 
-        def json(self):
-            return []
 
-    class FakeClient:
-        def __init__(self, timeout: float, follow_redirects: bool) -> None:
-            pass
+def test_fetch_jwks_accepts_response_exactly_at_limit(monkeypatch) -> None:
+    body = b'{"keys":[]}'
+    response = FakeStreamResponse([body[:3], body[3:]])
+    monkeypatch.setattr("cimasim_api.auth.verifier.httpx.Client", FakeStreamClient(response))
 
-        def __enter__(self):
-            return self
+    assert fetch_jwks(
+        "https://cimasim.cloudflareaccess.com/cdn-cgi/access/certs", 0.5, len(body)
+    ) == {"keys": []}
 
-        def __exit__(self, *_args) -> None:
-            return None
 
-        def get(self, _url: str):
-            return FakeResponse()
-
-    monkeypatch.setattr("cimasim_api.auth.verifier.httpx.Client", FakeClient)
+def test_fetch_jwks_rejects_invalid_json(monkeypatch) -> None:
+    response = FakeStreamResponse([b"{"])
+    monkeypatch.setattr("cimasim_api.auth.verifier.httpx.Client", FakeStreamClient(response))
 
     try:
         fetch_jwks("https://cimasim.cloudflareaccess.com/cdn-cgi/access/certs", 0.5, 100)
-    except ValueError as exc:
-        assert str(exc) == "jwks_malformed"
+    except json.JSONDecodeError:
+        pass
     else:
-        raise AssertionError("malformed JWKS was accepted")
+        raise AssertionError("invalid JSON was accepted")
+
+
+def test_fetch_jwks_rejects_http_error(monkeypatch) -> None:
+    response = FakeStreamResponse([b'{"keys":[]}'], status_error=True)
+    monkeypatch.setattr("cimasim_api.auth.verifier.httpx.Client", FakeStreamClient(response))
+
+    try:
+        fetch_jwks("https://cimasim.cloudflareaccess.com/cdn-cgi/access/certs", 0.5, 100)
+    except httpx.HTTPStatusError:
+        pass
+    else:
+        raise AssertionError("HTTP error was accepted")
+
+
+def test_fetch_jwks_rejects_timeout(monkeypatch) -> None:
+    class TimeoutClient(FakeStreamClient):
+        def stream(self, method: str, url: str) -> FakeStreamResponse:
+            raise httpx.TimeoutException("timeout")
+
+    monkeypatch.setattr(
+        "cimasim_api.auth.verifier.httpx.Client",
+        TimeoutClient(FakeStreamResponse([])),
+    )
+
+    try:
+        fetch_jwks("https://cimasim.cloudflareaccess.com/cdn-cgi/access/certs", 0.5, 100)
+    except httpx.TimeoutException:
+        pass
+    else:
+        raise AssertionError("timeout was accepted")
+
+
+def test_jwks_cache_reuses_single_refresh_for_concurrent_empty_cache(
+    settings: Settings, key_material, jwks
+) -> None:
+    lock = threading.Lock()
+    entered = threading.Event()
+    release = threading.Event()
+    calls = 0
+
+    def controlled_fetcher(_url: str, _timeout: float, _max_bytes: int):
+        nonlocal calls
+        with lock:
+            calls += 1
+            if calls == 1:
+                entered.set()
+        release.wait(timeout=2)
+        return jwks
+
+    client = make_client(settings, FakeJwksFetcher([jwks]))
+    client.app.state.auth_verifier._jwks_cache.fetcher = controlled_fetcher
+    token = make_token(key_material)
+    results: list[int] = []
+
+    def request_me() -> None:
+        results.append(client.get("/api/me", headers=auth_headers(token)).status_code)
+
+    threads = [threading.Thread(target=request_me) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    assert entered.wait(timeout=2)
+    release.set()
+    for thread in threads:
+        thread.join(timeout=2)
+
+    assert results == [200, 200, 200, 200]
+    assert calls == 1
+
+
+def test_jwk_rejects_wrong_kty(settings: Settings, key_material, jwks) -> None:
+    bad_jwk = {**jwks["keys"][0], "kty": "EC"}
+    client = make_client(settings, FakeJwksFetcher([{"keys": [bad_jwk]}]))
+    token = make_token(key_material)
+
+    assert client.get("/api/me", headers=auth_headers(token)).status_code == 401
+
+
+def test_jwk_rejects_wrong_alg(settings: Settings, key_material, jwks) -> None:
+    bad_jwk = {**jwks["keys"][0], "alg": "RS512"}
+    client = make_client(settings, FakeJwksFetcher([{"keys": [bad_jwk]}]))
+    token = make_token(key_material)
+
+    assert client.get("/api/me", headers=auth_headers(token)).status_code == 401
+
+
+def test_jwk_rejects_wrong_use(settings: Settings, key_material, jwks) -> None:
+    bad_jwk = {**jwks["keys"][0], "use": "enc"}
+    client = make_client(settings, FakeJwksFetcher([{"keys": [bad_jwk]}]))
+    token = make_token(key_material)
+
+    assert client.get("/api/me", headers=auth_headers(token)).status_code == 401
+
+
+def test_jwk_rejects_empty_kid(settings: Settings, key_material, jwks) -> None:
+    bad_jwk = {**jwks["keys"][0], "kid": ""}
+    client = make_client(settings, FakeJwksFetcher([{"keys": [bad_jwk]}]))
+    token = make_token(key_material, kid="")
+
+    assert client.get("/api/me", headers=auth_headers(token)).status_code == 401
+
+
+def test_jwk_accepts_valid_rsa_key(client: TestClient, key_material) -> None:
+    token = make_token(key_material)
+
+    assert client.get("/api/me", headers=auth_headers(token)).status_code == 200
+
+
+def test_unexpected_exception_returns_stable_json() -> None:
+    from fastapi import APIRouter
+
+    from cimasim_api.main import create_app
+
+    router = APIRouter()
+
+    @router.get("/boom")
+    def boom() -> None:
+        raise RuntimeError("sensitive internal failure")
+
+    app = create_app(
+        Settings(
+            cf_team_domain=TEAM_DOMAIN,
+            cf_aud=AUDIENCE,
+            allowed_email_domains=["uabc.edu.mx"],
+        )
+    )
+    app.include_router(router)
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/boom")
+
+    assert response.status_code == 500
+    assert response.headers["cache-control"] == "no-store"
+    body = response.text
+    assert "sensitive internal failure" not in body
+    assert "traceback" not in body.lower()
+    assert response.json()["error"]["request_id"]
+
+
+def test_importing_main_does_not_create_global_app() -> None:
+    import cimasim_api.main as main_module
+
+    assert not hasattr(main_module, "app")
+    assert callable(main_module.create_app)
 
 
 def test_jwks_timeout_is_401(settings: Settings, key_material) -> None:

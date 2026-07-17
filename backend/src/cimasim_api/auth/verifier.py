@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -20,11 +21,17 @@ Fetcher = Callable[[str, float, int], dict[str, Any]]
 
 def fetch_jwks(url: str, timeout_seconds: float, max_bytes: int) -> dict[str, Any]:
     with httpx.Client(timeout=timeout_seconds, follow_redirects=False) as client:
-        response = client.get(url)
-    response.raise_for_status()
-    if len(response.content) > max_bytes:
-        raise ValueError("jwks_response_too_large")
-    payload = response.json()
+        with client.stream("GET", url) as response:
+            response.raise_for_status()
+            content_length = response.headers.get("Content-Length")
+            if content_length is not None and int(content_length) > max_bytes:
+                raise ValueError("jwks_response_too_large")
+            body = bytearray()
+            for chunk in response.iter_bytes():
+                body.extend(chunk)
+                if len(body) > max_bytes:
+                    raise ValueError("jwks_response_too_large")
+    payload = json.loads(bytes(body))
     if not isinstance(payload, dict):
         raise ValueError("jwks_malformed")
     return payload
@@ -41,12 +48,13 @@ class JwksCache:
     def __post_init__(self) -> None:
         self._cached_at = 0.0
         self._jwks: dict[str, Any] | None = None
+        self._lock = threading.RLock()
 
     def key_for(self, kid: str) -> PyJWK:
         jwks = self._current_jwks()
         key = self._find_key(jwks, kid)
         if key is None:
-            jwks = self.refresh()
+            jwks = self.refresh(force=True)
             key = self._find_key(jwks, kid)
         if key is None:
             raise InvalidAuthenticationError
@@ -55,23 +63,36 @@ class JwksCache:
         except PyJWTError as exc:
             raise InvalidAuthenticationError from exc
 
-    def refresh(self) -> dict[str, Any]:
+    def refresh(self, *, force: bool = False) -> dict[str, Any]:
+        with self._lock:
+            if not force and self._jwks is not None and not self._is_expired():
+                return self._jwks
+            return self._refresh_locked()
+
+    def _refresh_locked(self) -> dict[str, Any]:
         try:
             jwks = self.fetcher(self.url, self.timeout_seconds, self.max_bytes)
         except (httpx.HTTPError, ValueError, json.JSONDecodeError) as exc:
             raise InvalidAuthenticationError from exc
 
-        keys = jwks.get("keys")
-        if not isinstance(keys, list):
-            raise InvalidAuthenticationError
+        self._validate_jwks_shape(jwks)
         self._jwks = jwks
         self._cached_at = time.monotonic()
         return jwks
 
+    @staticmethod
+    def _validate_jwks_shape(jwks: dict[str, Any]) -> None:
+        if not isinstance(jwks.get("keys"), list):
+            raise InvalidAuthenticationError
+
+    def _is_expired(self) -> bool:
+        return time.monotonic() - self._cached_at > self.ttl_seconds
+
     def _current_jwks(self) -> dict[str, Any]:
-        if self._jwks is None or time.monotonic() - self._cached_at > self.ttl_seconds:
-            return self.refresh()
-        return self._jwks
+        with self._lock:
+            if self._jwks is None or self._is_expired():
+                return self._refresh_locked()
+            return self._jwks
 
     @staticmethod
     def _find_key(jwks: dict[str, Any], kid: str) -> dict[str, Any] | None:
@@ -80,8 +101,20 @@ class JwksCache:
             raise InvalidAuthenticationError
         for key in keys:
             if isinstance(key, dict) and key.get("kid") == kid:
+                JwksCache._validate_key(key)
                 return key
         return None
+
+    @staticmethod
+    def _validate_key(key: dict[str, Any]) -> None:
+        if not isinstance(key.get("kid"), str) or not key["kid"]:
+            raise InvalidAuthenticationError
+        if key.get("kty") != "RSA":
+            raise InvalidAuthenticationError
+        if key.get("alg") != "RS256":
+            raise InvalidAuthenticationError
+        if key.get("use") not in (None, "sig"):
+            raise InvalidAuthenticationError
 
 
 class CloudflareAccessVerifier:

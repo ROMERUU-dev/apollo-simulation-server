@@ -19,6 +19,50 @@ def test_settings_derives_jwks_url_and_domains() -> None:
     assert settings.is_auth_configured is True
 
 
+def test_team_domain_validation_cases() -> None:
+    invalid_domains = [
+        "http://cimasim.cloudflareaccess.com",
+        "https://example.com",
+        "https://cloudflareaccess.com",
+        "https://cimasim.cloudflareaccess.com.evil.example",
+        "https://user:pass@cimasim.cloudflareaccess.com",
+        "https://cimasim.cloudflareaccess.com:8443",
+        "https://cimasim.cloudflareaccess.com/path",
+        "https://cimasim.cloudflareaccess.com?query=1",
+        "https://cimasim.cloudflareaccess.com#fragment",
+    ]
+
+    for domain in invalid_domains:
+        settings = Settings(
+            cf_team_domain=domain,
+            cf_aud=AUDIENCE,
+            allowed_email_domains=["uabc.edu.mx"],
+        )
+        assert settings.normalized_team_domain is None
+        assert "invalid_team_domain" in settings.auth_configuration_errors
+        assert settings.is_auth_configured is False
+
+
+def test_invalid_team_domain_fails_closed_without_jwks_fetch(key_material) -> None:
+    from conftest import FakeJwksFetcher, auth_headers, make_client, make_token
+
+    settings = Settings(
+        cf_team_domain="https://example.com",
+        cf_aud=AUDIENCE,
+        allowed_email_domains=["uabc.edu.mx"],
+    )
+    fetcher = FakeJwksFetcher([{"keys": []}])
+
+    with make_client(settings, fetcher) as client:
+        assert client.get("/healthz").status_code == 200
+        assert client.get("/readyz").status_code == 503
+        token = make_token(key_material)
+        response = client.get("/api/me", headers=auth_headers(token))
+
+    assert response.status_code == 503
+    assert fetcher.calls == 0
+
+
 def test_settings_reports_invalid_auth_configuration() -> None:
     settings = Settings(
         cf_team_domain=None,

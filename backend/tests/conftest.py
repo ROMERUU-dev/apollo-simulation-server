@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from jwt.algorithms import RSAAlgorithm
 
 from cimasim_api.auth.verifier import CloudflareAccessVerifier, JwksCache
-from cimasim_api.config import Settings, get_settings
+from cimasim_api.config import Settings
 from cimasim_api.main import create_app
 
 TEAM_DOMAIN = "https://cimasim.cloudflareaccess.com"
@@ -73,7 +73,7 @@ def make_token(
     kid: str = KID,
     alg: str = "RS256",
     issuer: str = TEAM_DOMAIN,
-    audience: str = AUDIENCE,
+    audience: str | list[str] = AUDIENCE,
     subject: str | None = "user-123",
     email: str | None = "Usuario@UABC.edu.mx",
     token_type: str | None = "app",
@@ -115,17 +115,14 @@ def make_client(
     fetcher: FakeJwksFetcher,
 ) -> TestClient:
     app = create_app(settings)
-    if not settings.jwks_url:
-        raise AssertionError("test settings must include jwks url")
     cache = JwksCache(
-        url=settings.jwks_url,
+        url=settings.jwks_url or "https://invalid.cloudflareaccess.com/cdn-cgi/access/certs",
         ttl_seconds=settings.jwks_ttl_seconds,
         timeout_seconds=settings.jwks_timeout_seconds,
         max_bytes=settings.jwks_max_bytes,
         fetcher=fetcher,
     )
     app.state.auth_verifier = CloudflareAccessVerifier(settings, cache)
-    app.dependency_overrides[get_settings] = lambda: settings
     return TestClient(app)
 
 

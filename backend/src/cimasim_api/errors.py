@@ -76,3 +76,17 @@ async def api_error_handler(request: Request, exc: Exception) -> JSONResponse:
             }
         },
     )
+
+
+async def internal_error_handler(request: Request, _exc: Exception) -> JSONResponse:
+    return JSONResponse(
+        status_code=500,
+        headers={"Cache-Control": "no-store"},
+        content={
+            "error": {
+                "code": "internal_error",
+                "message": "An internal error occurred.",
+                "request_id": request_id_for(request),
+            }
+        },
+    )

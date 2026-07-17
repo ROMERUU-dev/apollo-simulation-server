@@ -3,11 +3,11 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Response, status
 
 from cimasim_api.auth.dependencies import authenticated_identity
-from cimasim_api.config import Settings, get_settings
+from cimasim_api.config import Settings, get_app_settings
 from cimasim_api.models import FrontendHealthResponse, HealthResponse, Identity, ReadinessResponse
 
 router = APIRouter()
-SettingsDep = Annotated[Settings, Depends(get_settings)]
+SettingsDep = Annotated[Settings, Depends(get_app_settings)]
 IdentityDep = Annotated[Identity, Depends(authenticated_identity)]
 
 
