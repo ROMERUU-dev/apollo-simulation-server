@@ -29,6 +29,15 @@ docker compose -p cimasim_backend \
 The host publication is only `127.0.0.1:8089:8080`. There is no public proxy to
 `/api` in this phase.
 
+## Build Context Filtering
+
+The Compose build context is the repository root because the Dockerfile needs
+to copy files from `backend/`. The file
+`deploy/backend/Dockerfile.dockerignore` is specific to this backend Dockerfile
+and is applied before the context is sent to the builder. It excludes secrets,
+local environments, frontend assets, preview deployment files, docs, exports,
+tests, caches, and private key material from the backend image build context.
+
 ## Health And Readiness
 
 ```sh
