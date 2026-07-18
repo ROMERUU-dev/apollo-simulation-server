@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cimasim-worker"
+version = "0.1.0"
+description = "Internal fixed-circuit Xyce worker spike"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "build>=1.2.1",
+  "mypy>=1.11.0",
+  "pytest>=8.3.0",
+  "ruff>=0.6.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cimasim_worker"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S"]
+ignore = [
+  "S101",
+  "S603",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S108"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
