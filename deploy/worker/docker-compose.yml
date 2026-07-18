@@ -1,0 +1,34 @@
+services:
+  xyce-spike:
+    build:
+      context: ../..
+      dockerfile: deploy/worker/Dockerfile
+      additional_contexts:
+        xyce: ${CIMASIM_XYCE_PREFIX:?Set CIMASIM_XYCE_PREFIX to the local Xyce prefix}
+    image: cimasim-xyce-spike:${CIMASIM_XYCE_IMAGE_TAG:-dev}
+    container_name: cimasim-xyce-spike
+    init: true
+    network_mode: none
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    user: "10002:10002"
+    pids_limit: 128
+    cpus: "2.0"
+    mem_limit: 2g
+    memswap_limit: 2g
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=128m,uid=10002,gid=10002,mode=1770
+    volumes:
+      - cimasim-xyce-spike-output:/output
+    logging:
+      driver: json-file
+      options:
+        max-size: "256k"
+        max-file: "2"
+
+volumes:
+  cimasim-xyce-spike-output:
+    name: cimasim-xyce-spike-output

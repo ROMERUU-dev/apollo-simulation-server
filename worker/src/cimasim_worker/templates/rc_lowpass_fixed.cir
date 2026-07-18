@@ -1,0 +1,7 @@
+* CimaSim fixed RC low-pass smoke circuit
+Vin in 0 PULSE(0 1 0 1u 1u 10m 20m)
+R1 in out 1k
+C1 out 0 1u
+.tran 2.5u 5m 0 2.5u
+.print tran V(in) V(out)
+.end
