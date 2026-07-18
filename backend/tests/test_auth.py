@@ -4,6 +4,7 @@ import json
 import threading
 from collections.abc import Iterator
 from types import TracebackType
+from typing import Any, cast
 
 import httpx
 from conftest import (
@@ -228,7 +229,7 @@ def test_incomplete_auth_configuration_is_503(key_material) -> None:
 
 
 def test_jwks_refresh_after_unknown_kid_accepts_new_key(settings: Settings, key_material) -> None:
-    empty_jwks = {"keys": []}
+    empty_jwks: dict[str, list[dict[str, Any]]] = {"keys": []}
     rotated_jwk = json.loads(RSAAlgorithm.to_jwk(key_material.private_key.public_key()))
     rotated_jwk.update({"kid": "rotated", "alg": "RS256", "use": "sig"})
     valid_jwks = {"keys": [rotated_jwk]}
@@ -442,7 +443,7 @@ def test_jwks_cache_reuses_single_refresh_for_concurrent_empty_cache(
         return jwks
 
     client = make_client(settings, FakeJwksFetcher([jwks]))
-    client.app.state.auth_verifier._jwks_cache.fetcher = controlled_fetcher
+    cast(Any, client.app).state.auth_verifier._jwks_cache.fetcher = controlled_fetcher
     token = make_token(key_material)
     results: list[int] = []
 

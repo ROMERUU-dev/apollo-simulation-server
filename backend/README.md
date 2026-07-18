@@ -1,6 +1,14 @@
-# CimaSim API Phase 1
+# CimaSim API
 
-This backend phase introduces only the FastAPI application boundary, health endpoints, Cloudflare Access JWT validation, and the authenticated identity endpoint. It does not implement jobs, uploads, queues, databases, workers, Xyce, ngspice, Docker deployment, or simulator execution.
+This backend provides the FastAPI application boundary, health endpoints,
+Cloudflare Access JWT validation, authenticated identity, and internal fixed
+template job endpoints. The job endpoints are implemented for the single
+authorized template `rc_lowpass_fixed_v1` and are not exposed by the preview
+Nginx configuration yet.
+
+It does not accept arbitrary netlists, user parameters, external models,
+includes, sweeps, cancellation, deletes, Redis, PostgreSQL, Docker socket
+access, or public simulator execution.
 
 ## Local Setup
 
@@ -22,6 +30,9 @@ Settings use the `CIMASIM_` prefix:
 - `CIMASIM_CF_AUD`
 - `CIMASIM_ALLOWED_EMAIL_DOMAINS`
 - `CIMASIM_ENABLE_DOCS`
+- `CIMASIM_JOBS_ENABLED`
+- `CIMASIM_JOB_SPOOL_ROOT`
+- `CIMASIM_JOB_TIMEOUT_SECONDS`
 
 Example values are in `.env.example`. The Cloudflare Access team domain may be stored there, but the real Application Audience AUD, JWTs, cookies, and tokens must never be committed.
 
@@ -49,8 +60,14 @@ There is no anonymous identity, fake user, auth bypass, or environment-provided 
 - `GET /readyz`: unauthenticated internal readiness for auth configuration.
 - `GET /api/health`: authenticated frontend health.
 - `GET /api/me`: authenticated identity and initial limits.
+- `POST /api/jobs`: authenticated internal creation for `rc_lowpass_fixed_v1`.
+- `GET /api/jobs`: authenticated internal user-scoped job list.
+- `GET /api/jobs/{job_id}`: authenticated internal user-scoped job detail.
+- `GET /api/jobs/{job_id}/artifacts`: authenticated internal artifact list.
+- `GET /api/jobs/{job_id}/artifacts/waveform.csv`: authenticated internal CSV download.
 
-`/api/jobs`, artifacts, cancellation, queues, workers, and simulator execution are intentionally not implemented in this phase.
+The job routes still require Cloudflare Access JWT validation and remain
+unpublished by the preview proxy in this phase.
 
 ## Running Locally
 

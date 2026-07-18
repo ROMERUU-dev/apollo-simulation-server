@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 from conftest import AUDIENCE, TEAM_DOMAIN
 from fastapi.testclient import TestClient
 
@@ -9,7 +11,7 @@ def test_settings_derives_jwks_url_and_domains() -> None:
     settings = Settings(
         cf_team_domain=f"{TEAM_DOMAIN}/",
         cf_aud=AUDIENCE,
-        allowed_email_domains="UABC.edu.mx, example.edu",
+        allowed_email_domains=cast(Any, "UABC.edu.mx, example.edu"),
     )
 
     assert settings.normalized_team_domain == TEAM_DOMAIN

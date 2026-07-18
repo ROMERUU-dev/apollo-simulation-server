@@ -22,4 +22,12 @@ def me(
     identity: IdentityDep,
 ) -> IdentityResponse:
     response.headers["Cache-Control"] = "no-store"
-    return IdentityResponse(**identity.public_dump(), limits=INITIAL_LIMITS)
+    return IdentityResponse(
+        user_id=identity.user_id,
+        email=identity.email,
+        name=identity.name,
+        roles=identity.roles,
+        is_admin=identity.is_admin,
+        groups=identity.groups,
+        limits=INITIAL_LIMITS,
+    )
