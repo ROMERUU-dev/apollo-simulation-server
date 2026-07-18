@@ -13,6 +13,7 @@ import {
   Settings,
 } from 'lucide-react'
 import { useJobs } from '../../hooks/useJobs'
+import { useSession } from '../../session/useSession'
 import { ThemeToggle } from './ThemeToggle'
 import styles from './AppLayout.module.css'
 
@@ -27,8 +28,11 @@ interface NavItemDef {
 export function AppLayout({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false)
   const { jobs } = useJobs()
+  const { identity, health } = useSession()
   const location = useLocation()
   const activeJobsCount = jobs.filter((j) => j.status === 'running' || j.status === 'queued').length
+  const displayName = identity?.name?.trim() || identity?.email || 'Sesión no disponible'
+  const backendConnected = health?.status === 'ok'
 
   const navItems: NavItemDef[] = [
     { to: '/', label: 'Inicio', icon: Home, end: true },
@@ -61,8 +65,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
           </svg>
           {!collapsed && (
             <div className={styles.brandText}>
-              Apollo
-              <span className={styles.brandSubtitle}>Simulation Server</span>
+              CimaSim
+              <span className={styles.brandSubtitle}>
+                Backend conectado · Ejecución próximamente
+              </span>
             </div>
           )}
         </div>
@@ -97,7 +103,17 @@ export function AppLayout({ children }: { children: ReactNode }) {
         </nav>
 
         <div className={styles.footer}>
-          {!collapsed && <ThemeToggle />}
+          {!collapsed && (
+            <>
+              <div style={{ fontSize: 12, lineHeight: 1.4, opacity: 0.82, marginBottom: 12 }}>
+                <div style={{ fontWeight: 600 }}>{displayName}</div>
+                {identity?.email && <div>{identity.email}</div>}
+                <div>{backendConnected ? 'API conectada' : 'API no disponible'}</div>
+                <div>Sesión protegida por Cloudflare Access</div>
+              </div>
+              <ThemeToggle />
+            </>
+          )}
           <button
             type="button"
             className={styles.footerButton}

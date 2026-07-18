@@ -1,6 +1,4 @@
-import { useEffect } from 'react'
 import { AlertTriangle } from 'lucide-react'
-import { createDefaultParameters } from '../../../../mocks/parameters'
 import { computeSweepSummary, describeCombinations } from '../../../../utils/parameterSweep'
 import type { ParameterDefinition } from '../../../../types'
 import { ParameterRow } from './ParameterRow'
@@ -12,13 +10,6 @@ interface ParametersStepProps {
 }
 
 export function ParametersStep({ state, onChange }: ParametersStepProps) {
-  useEffect(() => {
-    if (state.parameters.length === 0) {
-      onChange({ parameters: createDefaultParameters() })
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
   const summary = computeSweepSummary(state.parameters)
 
   function updateParameter(id: string, patch: Partial<ParameterDefinition>) {
@@ -29,34 +20,41 @@ export function ParametersStep({ state, onChange }: ParametersStepProps) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 820 }}>
-          <thead>
-            <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--color-divider)' }}>
-              <th style={{ padding: '8px 5px' }}>Nombre</th>
-              <th style={{ padding: '8px 5px' }}>Valor original</th>
-              <th style={{ padding: '8px 5px' }}>Modo</th>
-              <th style={{ padding: '8px 5px' }}>Valor fijo</th>
-              <th style={{ padding: '8px 5px' }}>Inicio</th>
-              <th style={{ padding: '8px 5px' }}>Fin</th>
-              <th style={{ padding: '8px 5px' }}>Paso</th>
-              <th style={{ padding: '8px 5px' }}>Lista</th>
-              <th style={{ padding: '8px 5px' }}>Unidad</th>
-              <th style={{ padding: '8px 5px', textAlign: 'right' }}># valores</th>
-            </tr>
-          </thead>
-          <tbody>
-            {state.parameters.map((parameter) => (
-              <ParameterRow
-                key={parameter.id}
-                parameter={parameter}
-                sweep={summary.sweeps.find((s) => s.parameterId === parameter.id)}
-                onUpdate={(patch) => updateParameter(parameter.id, patch)}
-              />
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {state.parameters.length === 0 ? (
+        <p style={{ opacity: 0.65, fontSize: 13 }}>
+          No hay parámetros reales detectados. La extracción automática se habilitará con la API de
+          simulación.
+        </p>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 820 }}>
+            <thead>
+              <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--color-divider)' }}>
+                <th style={{ padding: '8px 5px' }}>Nombre</th>
+                <th style={{ padding: '8px 5px' }}>Valor original</th>
+                <th style={{ padding: '8px 5px' }}>Modo</th>
+                <th style={{ padding: '8px 5px' }}>Valor fijo</th>
+                <th style={{ padding: '8px 5px' }}>Inicio</th>
+                <th style={{ padding: '8px 5px' }}>Fin</th>
+                <th style={{ padding: '8px 5px' }}>Paso</th>
+                <th style={{ padding: '8px 5px' }}>Lista</th>
+                <th style={{ padding: '8px 5px' }}>Unidad</th>
+                <th style={{ padding: '8px 5px', textAlign: 'right' }}># valores</th>
+              </tr>
+            </thead>
+            <tbody>
+              {state.parameters.map((parameter) => (
+                <ParameterRow
+                  key={parameter.id}
+                  parameter={parameter}
+                  sweep={summary.sweeps.find((s) => s.parameterId === parameter.id)}
+                  onUpdate={(patch) => updateParameter(parameter.id, patch)}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <div
         className="card"
@@ -80,8 +78,10 @@ export function ParametersStep({ state, onChange }: ParametersStepProps) {
             Total de combinaciones
           </div>
           <div style={{ fontFamily: 'var(--font-heading)', fontSize: 22, fontWeight: 600 }}>
-            {describeCombinations(state.parameters, summary.sweeps)} ={' '}
             {summary.totalCombinations.toLocaleString('es')} corridas
+            {state.parameters.length > 0 && (
+              <> · {describeCombinations(state.parameters, summary.sweeps)}</>
+            )}
           </div>
         </div>
         {summary.isHighCombinationCount && (

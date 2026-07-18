@@ -15,7 +15,7 @@ export default function ResultsIndexPage() {
       ) : results.length === 0 ? (
         <EmptyState
           title="Sin resultados"
-          description="Los resultados aparecerán aquí al completarse simulaciones."
+          description="No hay gráficas, descargas ni archivos reales porque la ejecución aún no está habilitada."
         />
       ) : (
         <div style={{ border: '1px solid var(--color-divider)', padding: '0 10px', maxWidth: 640 }}>

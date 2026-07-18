@@ -2,6 +2,7 @@ import { Suspense, lazy } from 'react'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { AppLayout } from '../components/layout/AppLayout'
 import { LoadingState } from '../components/feedback/LoadingState'
+import { SessionProvider } from '../session/SessionContext'
 
 const HomePage = lazy(() => import('../pages/HomePage'))
 const ProjectsPage = lazy(() => import('../pages/ProjectsPage'))
@@ -19,24 +20,26 @@ const NotFoundPage = lazy(() => import('../pages/NotFoundPage'))
 export function App() {
   return (
     <BrowserRouter>
-      <AppLayout>
-        <Suspense fallback={<LoadingState label="Cargando vista…" />}>
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/projects" element={<ProjectsPage />} />
-            <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
-            <Route path="/simulations/new" element={<NewSimulationPage />} />
-            <Route path="/jobs" element={<JobsPage />} />
-            <Route path="/jobs/:jobId" element={<JobDetailPage />} />
-            <Route path="/results" element={<ResultsIndexPage />} />
-            <Route path="/results/:simulationId" element={<ResultDetailPage />} />
-            <Route path="/resources" element={<ResourcesPage />} />
-            <Route path="/models" element={<ModelsPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="*" element={<NotFoundPage />} />
-          </Routes>
-        </Suspense>
-      </AppLayout>
+      <SessionProvider>
+        <AppLayout>
+          <Suspense fallback={<LoadingState label="Cargando vista…" />}>
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/projects" element={<ProjectsPage />} />
+              <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
+              <Route path="/simulations/new" element={<NewSimulationPage />} />
+              <Route path="/jobs" element={<JobsPage />} />
+              <Route path="/jobs/:jobId" element={<JobDetailPage />} />
+              <Route path="/results" element={<ResultsIndexPage />} />
+              <Route path="/results/:simulationId" element={<ResultDetailPage />} />
+              <Route path="/resources" element={<ResourcesPage />} />
+              <Route path="/models" element={<ModelsPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="*" element={<NotFoundPage />} />
+            </Routes>
+          </Suspense>
+        </AppLayout>
+      </SessionProvider>
     </BrowserRouter>
   )
 }

@@ -45,7 +45,7 @@ describe('NewSimulationWizard', () => {
     )
   })
 
-  it('requires a simulator selection before continuing past step 3', async () => {
+  it('keeps simulator execution disabled', async () => {
     const user = userEvent.setup()
     renderWizard()
 
@@ -58,9 +58,7 @@ describe('NewSimulationWizard', () => {
     expect(await screen.findByRole('radiogroup', { name: /simulador/i })).toBeInTheDocument()
     const nextButton = screen.getByRole('button', { name: /siguiente/i })
     expect(nextButton).toBeDisabled()
-
-    await user.click(await screen.findByRole('radio', { name: /ngspice/i }))
-    expect(nextButton).toBeEnabled()
+    expect(await screen.findAllByText(/ejecución no habilitada/i)).toHaveLength(2)
   })
 
   it('shows the computed number of combinations on the parameters step', async () => {
@@ -72,14 +70,10 @@ describe('NewSimulationWizard', () => {
     await user.paste(VALID_NETLIST)
     await user.click(screen.getByRole('button', { name: /siguiente/i }))
     await user.click(screen.getByRole('button', { name: /siguiente/i }))
-    await user.click(await screen.findByRole('radio', { name: /xyce/i }))
-    await user.click(screen.getByRole('button', { name: /siguiente/i }))
-
-    expect(await screen.findByText(/total de combinaciones/i)).toBeInTheDocument()
-    expect(screen.getByText(/corridas/i)).toBeInTheDocument()
+    expect(await screen.findAllByText(/ejecución no habilitada/i)).toHaveLength(2)
   })
 
-  it('creates a simulated job and navigates to its detail view', async () => {
+  it('does not create a simulated job', async () => {
     const user = userEvent.setup()
     renderWizard()
 
@@ -88,13 +82,7 @@ describe('NewSimulationWizard', () => {
     await user.paste(VALID_NETLIST)
     await user.click(screen.getByRole('button', { name: /siguiente/i })) // -> files
     await user.click(screen.getByRole('button', { name: /siguiente/i })) // -> simulator
-    await user.click(await screen.findByRole('radio', { name: /ngspice/i }))
-    await user.click(screen.getByRole('button', { name: /siguiente/i })) // -> parameters
-    await user.click(screen.getByRole('button', { name: /siguiente/i })) // -> execution
-    await user.click(screen.getByRole('button', { name: /siguiente/i })) // -> review
-
-    await user.click(await screen.findByRole('button', { name: /iniciar simulación/i }))
-
-    expect(await screen.findByText('Vista de trabajo')).toBeInTheDocument()
+    expect(await screen.findAllByText(/ejecución no habilitada/i)).toHaveLength(2)
+    expect(screen.queryByText('Vista de trabajo')).not.toBeInTheDocument()
   })
 })

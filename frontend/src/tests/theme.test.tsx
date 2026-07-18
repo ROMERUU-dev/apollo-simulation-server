@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { AppLayout } from '../components/layout/AppLayout'
 import { MemoryRouter } from 'react-router-dom'
 import { useThemeStore } from '../hooks/useThemeStore'
+import { SessionProvider } from '../session/SessionContext'
 
 describe('theme toggle', () => {
   beforeEach(() => {
@@ -20,9 +21,11 @@ describe('theme toggle', () => {
     const user = userEvent.setup()
     render(
       <MemoryRouter>
-        <AppLayout>
-          <div>content</div>
-        </AppLayout>
+        <SessionProvider>
+          <AppLayout>
+            <div>content</div>
+          </AppLayout>
+        </SessionProvider>
       </MemoryRouter>,
     )
 

@@ -15,7 +15,7 @@ export function ConfigTab({
     >
       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
         <span>Simulador</span>
-        <strong>{result.simulatorId === 'xyce' ? 'Xyce 7.10.0' : 'ngspice 42'}</strong>
+        <strong>{result.simulatorId === 'xyce' ? 'Xyce' : 'ngspice'}</strong>
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
         <span>Proyecto</span>

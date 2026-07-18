@@ -15,7 +15,7 @@ export default function NewSimulationPage() {
     <div>
       <PageHeader
         title="Nueva simulación"
-        subtitle="Configura y lanza una simulación en seis pasos"
+        subtitle="Vista previa del flujo; ejecución real aún no habilitada"
       />
       <NewSimulationWizard key={initialProjectId ?? 'none'} initialProjectId={initialProjectId} />
     </div>

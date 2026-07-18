@@ -1,5 +1,3 @@
-import { useServerStatus } from '../../../../hooks/useServerStatus'
-import { LoadingState } from '../../../../components/feedback/LoadingState'
 import type { ExecutionConfig, FailureBehavior, JobPriority } from '../../../../types'
 import type { WizardState } from '../wizardTypes'
 
@@ -19,23 +17,9 @@ const inputStyle = {
 }
 
 export function ExecutionStep({ state, onChange }: ExecutionStepProps) {
-  const { status, loading } = useServerStatus()
-
   function updateExecution(patch: Partial<ExecutionConfig>) {
     onChange({ execution: { ...state.execution, ...patch } })
   }
-
-  if (loading || !status) return <LoadingState label="Consultando recursos del servidor…" />
-
-  const availableThreads = status.resources.cpuThreadsTotal - status.resources.cpuThreadsReserved
-  const estimatedLoadPct = Math.min(
-    100,
-    Math.round(
-      ((state.execution.parallelJobs + state.execution.reservedThreads) /
-        status.resources.cpuThreadsTotal) *
-        100,
-    ),
-  )
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -54,7 +38,8 @@ export function ExecutionStep({ state, onChange }: ExecutionStepProps) {
             id="parallel-jobs"
             type="number"
             min={1}
-            max={availableThreads}
+            max={1}
+            disabled
             value={state.execution.parallelJobs}
             onChange={(e) => updateExecution({ parallelJobs: Number(e.target.value) })}
             style={inputStyle}
@@ -69,6 +54,7 @@ export function ExecutionStep({ state, onChange }: ExecutionStepProps) {
             id="timeout"
             type="number"
             min={10}
+            disabled
             value={state.execution.timeoutSeconds}
             onChange={(e) => updateExecution({ timeoutSeconds: Number(e.target.value) })}
             style={inputStyle}
@@ -81,6 +67,7 @@ export function ExecutionStep({ state, onChange }: ExecutionStepProps) {
           </label>
           <select
             id="priority"
+            disabled
             value={state.execution.priority}
             onChange={(e) => updateExecution({ priority: e.target.value as JobPriority })}
             style={inputStyle}
@@ -97,6 +84,7 @@ export function ExecutionStep({ state, onChange }: ExecutionStepProps) {
           </label>
           <select
             id="on-failure"
+            disabled
             value={state.execution.onFailure}
             onChange={(e) => updateExecution({ onFailure: e.target.value as FailureBehavior })}
             style={inputStyle}
@@ -115,7 +103,8 @@ export function ExecutionStep({ state, onChange }: ExecutionStepProps) {
             id="reserved-threads"
             type="number"
             min={0}
-            max={availableThreads}
+            max={0}
+            disabled
             value={state.execution.reservedThreads}
             onChange={(e) => updateExecution({ reservedThreads: Number(e.target.value) })}
             style={inputStyle}
@@ -130,7 +119,8 @@ export function ExecutionStep({ state, onChange }: ExecutionStepProps) {
             id="reserved-ram"
             type="number"
             min={1}
-            max={status.resources.ramTotalGb}
+            max={1}
+            disabled
             value={state.execution.reservedRamGb}
             onChange={(e) => updateExecution({ reservedRamGb: Number(e.target.value) })}
             style={inputStyle}
@@ -141,6 +131,7 @@ export function ExecutionStep({ state, onChange }: ExecutionStepProps) {
           <input
             id="keep-files"
             type="checkbox"
+            disabled
             checked={state.execution.keepIntermediateFiles}
             onChange={(e) => updateExecution({ keepIntermediateFiles: e.target.checked })}
           />
@@ -160,62 +151,12 @@ export function ExecutionStep({ state, onChange }: ExecutionStepProps) {
             marginBottom: 10,
           }}
         >
-          Recursos del servidor
+          Ejecución
         </div>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-            gap: 14,
-            fontSize: 13,
-          }}
-        >
-          <div>
-            <div style={{ opacity: 0.6, fontSize: 11.5 }}>Hilos totales</div>
-            <div style={{ fontWeight: 600 }}>{status.resources.cpuThreadsTotal}</div>
-          </div>
-          <div>
-            <div style={{ opacity: 0.6, fontSize: 11.5 }}>Hilos disponibles</div>
-            <div style={{ fontWeight: 600 }}>{availableThreads}</div>
-          </div>
-          <div>
-            <div style={{ opacity: 0.6, fontSize: 11.5 }}>Hilos reservados (sistema)</div>
-            <div style={{ fontWeight: 600 }}>{status.resources.cpuThreadsReserved}</div>
-          </div>
-          <div>
-            <div style={{ opacity: 0.6, fontSize: 11.5 }}>RAM total</div>
-            <div style={{ fontWeight: 600 }}>{status.resources.ramTotalGb} GB</div>
-          </div>
-          <div>
-            <div style={{ opacity: 0.6, fontSize: 11.5 }}>Almacenamiento libre</div>
-            <div style={{ fontWeight: 600 }}>
-              {(status.resources.storageTotalGb - status.resources.storageUsedGb).toFixed(0)} GB
-            </div>
-          </div>
-        </div>
-        <div style={{ marginTop: 14 }}>
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              fontSize: 12,
-              marginBottom: 4,
-            }}
-          >
-            <span>Carga estimada con esta configuración</span>
-            <span>{estimatedLoadPct}%</span>
-          </div>
-          <div style={{ height: 6, background: 'var(--color-neutral-200)', borderRadius: 3 }}>
-            <div
-              style={{
-                height: '100%',
-                width: `${estimatedLoadPct}%`,
-                background: estimatedLoadPct > 85 ? 'var(--status-bad)' : 'var(--color-accent-600)',
-                borderRadius: 3,
-              }}
-            />
-          </div>
-        </div>
+        <p style={{ margin: 0, fontSize: 13, opacity: 0.75 }}>
+          La configuración de ejecución es una vista previa. La API de jobs, colas y simuladores
+          reales aún no está habilitada.
+        </p>
       </div>
     </div>
   )
