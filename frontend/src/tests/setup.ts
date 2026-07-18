@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom/vitest'
+import { afterEach, beforeEach, vi } from 'vitest'
 
 if (typeof window !== 'undefined' && !window.matchMedia) {
   window.matchMedia = (query: string) => ({
@@ -21,3 +22,46 @@ if (typeof HTMLDialogElement !== 'undefined' && !HTMLDialogElement.prototype.sho
     this.removeAttribute('open')
   }
 }
+
+const identity = {
+  user_id: 'cf-sub:test-user',
+  email: 'usuario@uabc.edu.mx',
+  name: null,
+  roles: ['user'],
+  is_admin: false,
+  groups: [],
+  limits: { active_jobs_per_user: 2 },
+}
+
+const health = {
+  status: 'ok',
+  service: 'cimasim',
+  features: { identity: 'available', job_submission: 'not_available' },
+}
+
+beforeEach(() => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation((input: RequestInfo | URL) => {
+    const url = String(input)
+    if (url === '/api/me') {
+      return Promise.resolve(
+        new Response(JSON.stringify(identity), {
+          status: 200,
+          headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
+        }),
+      )
+    }
+    if (url === '/api/health') {
+      return Promise.resolve(
+        new Response(JSON.stringify(health), {
+          status: 200,
+          headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
+        }),
+      )
+    }
+    return Promise.resolve(new Response('not found', { status: 404 }))
+  })
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})

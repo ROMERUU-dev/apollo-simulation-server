@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { CheckCircle2, LineChart, XCircle } from 'lucide-react'
+import { LineChart } from 'lucide-react'
 import { PageHeader } from '../components/layout/PageHeader'
 import { LoadingState } from '../components/feedback/LoadingState'
 import { ErrorState } from '../components/feedback/ErrorState'
@@ -33,18 +33,6 @@ export default function JobDetailPage() {
     if (!job) return
     await jobService.cancel(job.id)
     setConfirmingCancel(false)
-    refresh()
-  }
-
-  async function handleSimulateCompletion() {
-    if (!job) return
-    await jobService.simulateCompletion(job.id)
-    refresh()
-  }
-
-  async function handleSimulateFailure() {
-    if (!job) return
-    await jobService.simulateFailure(job.id)
     refresh()
   }
 
@@ -98,22 +86,6 @@ export default function JobDetailPage() {
                   }}
                 >
                   Cancelar
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSimulateCompletion}
-                  className="card"
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}
-                >
-                  <CheckCircle2 size={15} aria-hidden="true" /> Simular finalización
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSimulateFailure}
-                  className="card"
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}
-                >
-                  <XCircle size={15} aria-hidden="true" /> Simular fallo
                 </button>
               </>
             )}

@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, PlayCircle, Save } from 'lucide-react'
-import { simulationService, jobService, projectService } from '../../../services'
+import { simulationService } from '../../../services'
 import { WizardStepper } from './WizardStepper'
 import { NetlistStep } from './steps/NetlistStep'
 import { FilesStep } from './steps/FilesStep'
@@ -16,12 +15,9 @@ interface NewSimulationWizardProps {
 }
 
 export function NewSimulationWizard({ initialProjectId }: NewSimulationWizardProps) {
-  const navigate = useNavigate()
   const [state, setState] = useState<WizardState>(() => createInitialWizardState(initialProjectId))
   const [currentStep, setCurrentStep] = useState(0)
   const [furthestStep, setFurthestStep] = useState(0)
-  const [saved, setSaved] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
 
   function patchState(patch: Partial<WizardState>) {
     setState((prev) => ({ ...prev, ...patch }))
@@ -56,47 +52,6 @@ export function NewSimulationWizard({ initialProjectId }: NewSimulationWizardPro
 
   function handleBack() {
     goToStep(Math.max(currentStep - 1, 0))
-  }
-
-  async function handleSaveConfig() {
-    if (!state.simulatorId) return
-    await simulationService.createConfig({
-      projectId: state.projectId ?? '',
-      name: state.simulationName,
-      netlistId: state.netlistFileName ?? 'inline-netlist',
-      netlistContent: state.netlistContent,
-      modelFileIds: state.associatedFiles.map((f) => f.id),
-      simulatorId: state.simulatorId,
-      parameters: state.parameters,
-      execution: state.execution,
-    })
-    setSaved(true)
-  }
-
-  async function handleStartSimulation() {
-    if (!state.simulatorId || submitting) return
-    setSubmitting(true)
-    try {
-      const config = await simulationService.createConfig({
-        projectId: state.projectId ?? '',
-        name: state.simulationName,
-        netlistId: state.netlistFileName ?? 'inline-netlist',
-        netlistContent: state.netlistContent,
-        modelFileIds: state.associatedFiles.map((f) => f.id),
-        simulatorId: state.simulatorId,
-        parameters: state.parameters,
-        execution: state.execution,
-      })
-      let projectName = 'Sin proyecto asignado'
-      if (state.projectId) {
-        const project = await projectService.get(state.projectId)
-        if (project) projectName = project.name
-      }
-      const job = await jobService.createFromConfig(config, projectName)
-      navigate(`/jobs/${job.id}`)
-    } finally {
-      setSubmitting(false)
-    }
   }
 
   return (
@@ -156,36 +111,33 @@ export function NewSimulationWizard({ initialProjectId }: NewSimulationWizardPro
           </button>
         ) : (
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            {saved && (
-              <span role="status" style={{ fontSize: 12.5, color: 'var(--status-ok)' }}>
-                Configuración guardada
-              </span>
-            )}
+            <span role="status" style={{ fontSize: 12.5, color: 'var(--status-warn)' }}>
+              Ejecución real aún no habilitada
+            </span>
             <button
               type="button"
-              onClick={handleSaveConfig}
+              disabled
               className="card"
-              style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'not-allowed', opacity: 0.5 }}
             >
               <Save size={16} aria-hidden="true" /> Guardar configuración
             </button>
             <button
               type="button"
-              onClick={handleStartSimulation}
-              disabled={submitting || !state.simulatorId}
+              disabled
               className="card"
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: 6,
-                cursor: submitting ? 'wait' : 'pointer',
+                cursor: 'not-allowed',
+                opacity: 0.55,
                 background: 'var(--color-accent)',
                 color: 'var(--color-bg)',
                 borderColor: 'var(--color-accent)',
               }}
             >
-              <PlayCircle size={16} aria-hidden="true" />{' '}
-              {submitting ? 'Iniciando…' : 'Iniciar simulación'}
+              <PlayCircle size={16} aria-hidden="true" /> Iniciar simulación
             </button>
           </div>
         )}

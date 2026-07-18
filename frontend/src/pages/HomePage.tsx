@@ -1,24 +1,14 @@
-import { CirclePlus } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
 import { PageHeader } from '../components/layout/PageHeader'
-import { BlueprintButton } from '../components/layout/BlueprintButton'
 import { LoadingState } from '../components/feedback/LoadingState'
 import { ErrorState } from '../components/feedback/ErrorState'
 import { EmptyState } from '../components/feedback/EmptyState'
-import { useServerStatus } from '../hooks/useServerStatus'
 import { useJobs } from '../hooks/useJobs'
 import { useProjects } from '../hooks/useProjects'
 import { useResults } from '../hooks/useResults'
-import { ResourceMeter } from '../features/server/ResourceMeter'
-import { SimulatorAvailabilityCard } from '../features/server/SimulatorAvailabilityCard'
-import { JobListItem } from '../features/jobs/JobListItem'
-import { ProjectListItemCompact } from '../features/projects/ProjectListItemCompact'
-import { ResultListItemCompact } from '../features/results/ResultListItemCompact'
-import { formatBytes } from '../utils/format'
+import { useSession } from '../session/useSession'
 
 export default function HomePage() {
-  const navigate = useNavigate()
-  const { status, loading: statusLoading, error: statusError, refresh } = useServerStatus()
+  const { identity, health, loading: sessionLoading, error: sessionError, refreshHealth } = useSession()
   const { jobs, loading: jobsLoading } = useJobs()
   const { projects, loading: projectsLoading } = useProjects({
     status: 'active',
@@ -27,35 +17,27 @@ export default function HomePage() {
   })
   const { results, loading: resultsLoading } = useResults()
 
-  const activeAndQueuedJobs = jobs
-    .filter((j) => j.status === 'running' || j.status === 'queued')
-    .slice(0, 4)
-  const recentProjects = projects.slice(0, 4)
-  const recentResults = [...results]
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    .slice(0, 4)
-
-  if (statusError) {
-    return <ErrorState onRetry={refresh} />
+  if (sessionError) {
+    return (
+      <ErrorState
+        title="Sesión no disponible"
+        description={sessionError}
+        onRetry={() => {
+          window.location.reload()
+        }}
+      />
+    )
   }
 
   return (
     <div>
       <PageHeader
         title="Inicio"
-        subtitle="Resumen del servidor y actividad reciente"
-        actions={
-          <BlueprintButton
-            icon={<CirclePlus size={16} aria-hidden="true" />}
-            onClick={() => navigate('/simulations/new')}
-          >
-            Nueva simulación
-          </BlueprintButton>
-        }
+        subtitle="Backend conectado · Ejecución de simulaciones próximamente"
       />
 
-      {statusLoading || !status ? (
-        <LoadingState label="Cargando estado del servidor…" />
+      {sessionLoading ? (
+        <LoadingState label="Cargando sesión…" />
       ) : (
         <div
           style={{
@@ -65,22 +47,27 @@ export default function HomePage() {
             marginBottom: 26,
           }}
         >
-          <ResourceMeter
-            label="CPU"
-            percent={status.resources.cpuThreadsUsedPct}
-            detail={`${Math.round((status.resources.cpuThreadsUsedPct / 100) * status.resources.cpuThreadsTotal)} de ${status.resources.cpuThreadsTotal} hilos en uso`}
-          />
-          <ResourceMeter
-            label="Memoria RAM"
-            percent={(status.resources.ramUsedGb / status.resources.ramTotalGb) * 100}
-            detail={`${status.resources.ramUsedGb.toFixed(1)} GB de ${status.resources.ramTotalGb} GB`}
-          />
-          <ResourceMeter
-            label="Almacenamiento"
-            percent={(status.resources.storageUsedGb / status.resources.storageTotalGb) * 100}
-            detail={`${formatBytes((status.resources.storageTotalGb - status.resources.storageUsedGb) * 1024 ** 3)} libres`}
-          />
-          <SimulatorAvailabilityCard simulators={status.simulators} />
+          {[
+            { label: 'API', value: health?.status === 'ok' ? 'Conectada' : 'No disponible' },
+            { label: 'Sesión', value: identity?.email ?? 'No identificada' },
+            {
+              label: 'Envío de trabajos',
+              value:
+                health?.features.job_submission === 'not_available'
+                  ? 'Aún no habilitado'
+                  : 'Disponible',
+            },
+            { label: 'Ejecución', value: 'Próximamente' },
+          ].map((item) => (
+            <div key={item.label} className="card">
+              <div style={{ fontSize: 11, textTransform: 'uppercase', opacity: 0.55 }}>
+                {item.label}
+              </div>
+              <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, marginTop: 8 }}>
+                {item.value}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -99,31 +86,20 @@ export default function HomePage() {
             <h2 id="jobs-heading" style={{ fontSize: 17 }}>
               Trabajos activos y en cola
             </h2>
-            <a
-              href="/jobs"
-              onClick={(e) => {
-                e.preventDefault()
-                navigate('/jobs')
-              }}
-              style={{ fontSize: 13 }}
-            >
-              Ver todos →
-            </a>
+            <button type="button" onClick={refreshHealth} className="card" style={{ cursor: 'pointer' }}>
+              Actualizar API
+            </button>
           </div>
           <div style={{ border: '1px solid var(--color-divider)' }}>
             {jobsLoading ? (
               <LoadingState label="Cargando trabajos…" />
-            ) : activeAndQueuedJobs.length === 0 ? (
+            ) : jobs.length === 0 ? (
               <EmptyState
-                title="Sin trabajos activos"
-                description="No hay simulaciones en ejecución ni en cola."
+                title="Trabajos reales: 0"
+                description="La ejecución real aún no está habilitada."
               />
             ) : (
-              <ul style={{ margin: 0, padding: 0 }}>
-                {activeAndQueuedJobs.map((job) => (
-                  <JobListItem key={job.id} job={job} />
-                ))}
-              </ul>
+              <EmptyState title="Trabajos reales: 0" />
             )}
           </div>
         </section>
@@ -136,17 +112,13 @@ export default function HomePage() {
             <div style={{ border: '1px solid var(--color-divider)', padding: '0 10px' }}>
               {projectsLoading ? (
                 <LoadingState label="Cargando proyectos…" />
-              ) : recentProjects.length === 0 ? (
+              ) : projects.length === 0 ? (
                 <EmptyState
-                  title="Sin proyectos"
-                  description="Crea tu primer proyecto para comenzar."
+                  title="Proyectos reales: 0"
+                  description="La creación de proyectos se habilitará con el motor de simulación."
                 />
               ) : (
-                <ul style={{ margin: 0, padding: 0 }}>
-                  {recentProjects.map((project) => (
-                    <ProjectListItemCompact key={project.id} project={project} />
-                  ))}
-                </ul>
+                <EmptyState title="Proyectos reales: 0" />
               )}
             </div>
           </section>
@@ -158,17 +130,13 @@ export default function HomePage() {
             <div style={{ border: '1px solid var(--color-divider)', padding: '0 10px' }}>
               {resultsLoading ? (
                 <LoadingState label="Cargando resultados…" />
-              ) : recentResults.length === 0 ? (
+              ) : results.length === 0 ? (
                 <EmptyState
-                  title="Sin resultados"
-                  description="Los resultados aparecerán aquí al completarse simulaciones."
+                  title="Resultados reales: 0"
+                  description="No hay resultados reales porque la ejecución todavía no está habilitada."
                 />
               ) : (
-                <ul style={{ margin: 0, padding: 0 }}>
-                  {recentResults.map((result) => (
-                    <ResultListItemCompact key={result.id} result={result} />
-                  ))}
-                </ul>
+                <EmptyState title="Resultados reales: 0" />
               )}
             </div>
           </section>

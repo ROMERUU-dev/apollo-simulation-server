@@ -1,6 +1,4 @@
-import { CheckCircle2, XCircle } from 'lucide-react'
-import { useServerStatus } from '../../../../hooks/useServerStatus'
-import { LoadingState } from '../../../../components/feedback/LoadingState'
+import { XCircle } from 'lucide-react'
 import type { WizardState } from '../wizardTypes'
 
 interface SimulatorStepProps {
@@ -9,17 +7,17 @@ interface SimulatorStepProps {
 }
 
 export function SimulatorStep({ state, onChange }: SimulatorStepProps) {
-  const { status, loading } = useServerStatus()
-
-  if (loading || !status) return <LoadingState label="Consultando simuladores disponibles…" />
-
+  const simulators = [
+    { id: 'xyce' as const, name: 'Xyce' },
+    { id: 'ngspice' as const, name: 'ngspice' },
+  ]
   return (
     <div
       role="radiogroup"
       aria-label="Simulador"
       style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}
     >
-      {status.simulators.map((sim) => {
+      {simulators.map((sim) => {
         const selected = state.simulatorId === sim.id
         return (
           <button
@@ -27,13 +25,13 @@ export function SimulatorStep({ state, onChange }: SimulatorStepProps) {
             type="button"
             role="radio"
             aria-checked={selected}
-            disabled={!sim.available}
+            disabled
             onClick={() => onChange({ simulatorId: sim.id })}
             className="card"
             style={{
               textAlign: 'left',
-              cursor: sim.available ? 'pointer' : 'not-allowed',
-              opacity: sim.available ? 1 : 0.5,
+              cursor: 'not-allowed',
+              opacity: 0.6,
               borderColor: selected ? 'var(--color-accent)' : undefined,
               borderWidth: selected ? 2 : 1,
               display: 'flex',
@@ -43,35 +41,24 @@ export function SimulatorStep({ state, onChange }: SimulatorStepProps) {
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 16 }}>
-                {sim.name} {sim.version}
+                {sim.name}
               </span>
-              {sim.available ? (
-                <span
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    color: 'var(--status-ok)',
-                    fontSize: 12,
-                  }}
-                >
-                  <CheckCircle2 size={14} aria-hidden="true" /> Disponible
-                </span>
-              ) : (
-                <span
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    color: 'var(--status-bad)',
-                    fontSize: 12,
-                  }}
-                >
-                  <XCircle size={14} aria-hidden="true" /> No disponible
-                </span>
-              )}
+              <span
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  color: 'var(--status-bad)',
+                  fontSize: 12,
+                }}
+              >
+                <XCircle size={14} aria-hidden="true" /> Ejecución no habilitada
+              </span>
             </div>
-            <p style={{ margin: 0, fontSize: 13, opacity: 0.75 }}>{sim.description}</p>
+            <p style={{ margin: 0, fontSize: 13, opacity: 0.75 }}>
+              El backend autenticado está conectado, pero todavía no existe API de jobs ni ejecución
+              real de simuladores.
+            </p>
           </button>
         )
       })}
