@@ -79,7 +79,9 @@ export function ParametersStep({ state, onChange }: ParametersStepProps) {
           </div>
           <div style={{ fontFamily: 'var(--font-heading)', fontSize: 22, fontWeight: 600 }}>
             {summary.totalCombinations.toLocaleString('es')} corridas
-            {state.parameters.length > 0 && <> · {describeCombinations(state.parameters, summary.sweeps)}</>}
+            {state.parameters.length > 0 && (
+              <> · {describeCombinations(state.parameters, summary.sweeps)}</>
+            )}
           </div>
         </div>
         {summary.isHighCombinationCount && (

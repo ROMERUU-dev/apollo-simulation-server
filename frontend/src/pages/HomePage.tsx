@@ -8,7 +8,13 @@ import { useResults } from '../hooks/useResults'
 import { useSession } from '../session/useSession'
 
 export default function HomePage() {
-  const { identity, health, loading: sessionLoading, error: sessionError, refreshHealth } = useSession()
+  const {
+    identity,
+    health,
+    loading: sessionLoading,
+    error: sessionError,
+    refreshHealth,
+  } = useSession()
   const { jobs, loading: jobsLoading } = useJobs()
   const { projects, loading: projectsLoading } = useProjects({
     status: 'active',
@@ -86,7 +92,12 @@ export default function HomePage() {
             <h2 id="jobs-heading" style={{ fontSize: 17 }}>
               Trabajos activos y en cola
             </h2>
-            <button type="button" onClick={refreshHealth} className="card" style={{ cursor: 'pointer' }}>
+            <button
+              type="button"
+              onClick={refreshHealth}
+              className="card"
+              style={{ cursor: 'pointer' }}
+            >
               Actualizar API
             </button>
           </div>

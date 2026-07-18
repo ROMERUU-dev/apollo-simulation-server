@@ -42,7 +42,10 @@ function kindForStatus(status: number) {
 
 export async function apiGetJson<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
   const timeout = new AbortController()
-  const timeoutId = window.setTimeout(() => timeout.abort(), options.timeoutMs ?? DEFAULT_TIMEOUT_MS)
+  const timeoutId = window.setTimeout(
+    () => timeout.abort(),
+    options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+  )
   const signal = joinSignals(timeout.signal, options.signal)
 
   try {

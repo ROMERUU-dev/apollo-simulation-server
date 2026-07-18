@@ -118,7 +118,13 @@ export function NewSimulationWizard({ initialProjectId }: NewSimulationWizardPro
               type="button"
               disabled
               className="card"
-              style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'not-allowed', opacity: 0.5 }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                cursor: 'not-allowed',
+                opacity: 0.5,
+              }}
             >
               <Save size={16} aria-hidden="true" /> Guardar configuración
             </button>
