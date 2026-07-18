@@ -4,6 +4,33 @@ The preview remains the public entrypoint on `127.0.0.1:8088`. Cloudflare
 Tunnel continues to route `sim.cimasim.online` to `http://localhost:8088`; this
 deployment does not modify Cloudflare, DNS, or `cloudflared`.
 
+## Toolchain
+
+Frontend development requires Node.js 24 LTS. Use `nvm use` from the repository
+root, then run frontend commands from `frontend/`:
+
+```sh
+nvm use
+cd frontend
+npm ci
+npm run format:check
+npm run lint
+npm run test
+npm run build
+```
+
+Node 18 is not compatible with the current frontend toolchain. Keep any system
+Node installation in place unless it has been separately audited; do not use
+`sudo npm`. The preview production image builds with the official
+`node:24-alpine` builder stage and serves the final files from
+`nginxinc/nginx-unprivileged`; Node and npm are not part of the runtime stage.
+
+`deploy/preview/Dockerfile.dockerignore` is specific to the preview Dockerfile.
+The Docker build context remains the repository root so the Dockerfile can copy
+`frontend/` and `deploy/preview/nginx.conf`, but backend, docs, caches, local
+env files, and other unrelated files are excluded before the context is sent to
+the builder.
+
 ## Network Architecture
 
 The preview keeps its existing `cimasim-preview-internal` network and also joins
