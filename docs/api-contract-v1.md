@@ -6,7 +6,11 @@ Authenticated API routes are rooted at `/api` and return JSON unless an artifact
 
 The backend must validate Cloudflare Access JWTs from `Cf-Access-Jwt-Assertion` and derive identity from validated claims. The frontend and API should be served from the same origin for v1. Mutable v1 endpoints accept only `application/json`.
 
-Phase 1 does not execute arbitrary netlists. `POST /api/jobs` accepts job creation requests for validation and lifecycle handling only.
+The current internal phase executes only the fixed `rc_lowpass_fixed_v1` template.
+It does not accept arbitrary netlists, model files, parameters, sweeps, simulator
+selection, paths, commands, or environment variables from users. These routes are
+implemented in the backend but are not exposed through the preview Nginx config
+yet, and the frontend does not call them yet.
 
 ## Identity Schema
 
@@ -104,15 +108,15 @@ Response shape:
 
 ## Size Limits
 
-Initial limits:
+Initial limits for the current fixed-template phase:
 
 - JSON request body: 1 MB.
-- Netlist text: 256 KB, calculated from UTF-8 bytes by the server.
 - Job name: 120 characters.
-- Job description: 1,000 characters.
-- Sweep combinations: 100 simulations.
-- Artifact list response: 100 items per page.
-- Log response: 256 KB per request window.
+- Non-terminal jobs per user: 2.
+- Non-terminal jobs globally: 20.
+- Listed jobs per request: 100.
+- Worker timeout: fixed backend configuration, initially 30 seconds.
+- Artifact download size: 5 MiB.
 
 ## Idempotency
 
@@ -120,10 +124,10 @@ Initial limits:
 
 Rules:
 
-- same user, same key, same request body: return the original job with `200 OK` or `201 Created`;
+- same user, same key, same request body: return the original job with `200 OK`;
 - same user, same key, different body: return `409 Conflict`;
 - different user, same key: independent idempotency record;
-- keys expire after 24 hours.
+- keys are stored as hashes inside the file spool for this internal phase.
 
 ## GET /healthz
 
@@ -178,8 +182,8 @@ Response `200 OK`:
   "status": "ok",
   "service": "cimasim",
   "features": {
-    "job_submission": "validation_only",
-    "artifact_downloads": "available"
+    "identity": "available",
+    "job_submission": "available"
   }
 }
 ```
@@ -228,7 +232,9 @@ Errors:
 
 ## POST /api/jobs
 
-Creates a job request after validation, quota, and global capacity checks. Phase 1 queues validation-only jobs and must not run arbitrary simulator execution.
+Creates a job request after identity, schema, quota, idempotency, and global
+capacity checks. The backend always selects Xyce and the fixed
+`rc_lowpass_fixed_v1` template.
 
 Headers:
 
@@ -239,87 +245,67 @@ Request:
 
 ```json
 {
-  "name": "RC low-pass sweep",
-  "description": "Validation-only job for an RC circuit.",
-  "simulator": "ngspice",
-  "netlist": {
-    "filename": "rc_lowpass.cir",
-    "content": "* RC low-pass\n.end\n"
-  },
-  "sweep": {
-    "parameters": [
-      {
-        "name": "R1",
-        "values": ["1k", "2k", "5k"]
-      }
-    ]
-  }
+  "name": "Mi prueba RC",
+  "template_id": "rc_lowpass_fixed_v1"
 }
 ```
 
-The backend calculates the actual netlist size from the UTF-8 bytes of `netlist.content` and applies the 256 KB limit to that calculated value. The backend must not trust client-provided counts, sizes, or checksums for validation or quota enforcement.
+`name` is normalized, limited to 120 characters, and must not contain control
+characters. `template_id` must be exactly `rc_lowpass_fixed_v1`. Extra fields are
+rejected, including `netlist`, `content`, `filename`, `parameters`, `sweep`,
+`simulator`, `paths`, `environment`, and `command`.
 
 Response `201 Created`:
 
 ```json
 {
-  "job_id": "job_01JZ7X8Y2Q4SQ6Q9W4V4G6R2YE",
-  "state": "queued",
+  "job_id": "job_0123456789abcdef0123456789abcdef",
+  "name": "Mi prueba RC",
+  "template_id": "rc_lowpass_fixed_v1",
+  "simulator": "xyce",
+  "status": "queued",
   "created_at": "2026-07-17T21:45:00Z",
-  "owner": {
-    "user_id": "cf-sub:4f7f2c1b-8f3d-4db7-84f0-62d890000000"
-  },
-  "limits": {
-    "timeout_seconds": 1800,
-    "max_sweep_runs": 100
-  }
+  "updated_at": "2026-07-17T21:45:00Z",
+  "summary": null
 }
 ```
 
 Errors:
 
 - `401 Unauthorized`: invalid identity.
-- `413 Payload Too Large`: netlist or JSON body too large.
 - `415 Unsupported Media Type`: content type is not `application/json`.
-- `422 Unprocessable Entity`: unsupported simulator, unsafe filename, absolute path, symlink, traversal, or sweep too large.
+- `422 Unprocessable Entity`: invalid template, invalid name, or prohibited field.
 - `429 Too Many Requests`: active user quota, queue limit, or global capacity exceeded.
 - `503 Service Unavailable`: queue unavailable.
 
 ## GET /api/jobs
 
-Lists jobs visible to the authenticated user.
-
-Query parameters:
-
-- `state`: optional job state filter.
-- `limit`: optional page size.
-- `cursor`: optional page cursor.
+Lists up to 100 jobs owned by the authenticated user, ordered by `created_at`
+descending. It does not expose jobs owned by other users.
 
 Response `200 OK`:
 
 ```json
 {
-  "items": [
+  "jobs": [
     {
-      "job_id": "job_01JZ7X8Y2Q4SQ6Q9W4V4G6R2YE",
-      "name": "RC low-pass sweep",
-      "state": "queued",
-      "simulator": "ngspice",
+      "job_id": "job_0123456789abcdef0123456789abcdef",
+      "name": "Mi prueba RC",
+      "template_id": "rc_lowpass_fixed_v1",
+      "simulator": "xyce",
+      "status": "queued",
       "created_at": "2026-07-17T21:45:00Z",
-      "updated_at": "2026-07-17T21:45:00Z"
+      "updated_at": "2026-07-17T21:45:00Z",
+      "summary": null
     }
-  ],
-  "page": {
-    "limit": 25,
-    "next_cursor": null
-  }
+  ]
 }
 ```
 
 Errors:
 
 - `401 Unauthorized`.
-- `400 Bad Request` for invalid `state`, `limit`, or `cursor`.
+- `503 Service Unavailable` when the spool is unavailable.
 
 ## GET /api/jobs/{job_id}
 
@@ -329,49 +315,26 @@ Response `200 OK`:
 
 ```json
 {
-  "job_id": "job_01JZ7X8Y2Q4SQ6Q9W4V4G6R2YE",
-  "name": "RC low-pass sweep",
-  "state": "validating",
-  "simulator": "ngspice",
+  "job_id": "job_0123456789abcdef0123456789abcdef",
+  "name": "Mi prueba RC",
+  "template_id": "rc_lowpass_fixed_v1",
+  "simulator": "xyce",
+  "status": "succeeded",
   "created_at": "2026-07-17T21:45:00Z",
   "updated_at": "2026-07-17T21:45:03Z",
-  "progress": {
-    "phase": "input_validation",
-    "completed_runs": 0,
-    "total_runs": 3
-  },
-  "terminal": false
-}
-```
-
-Errors:
-
-- `401 Unauthorized`.
-- `404 Not Found` for missing jobs or jobs not visible to the user.
-
-## GET /api/jobs/{job_id}/log
-
-Returns a bounded log window for a visible job. Logs must be sanitized and must not include tokens, cookies, complete netlists, or private paths.
-
-Query parameters:
-
-- `cursor`: optional opaque cursor.
-- `limit_bytes`: optional integer up to 262144.
-
-Response `200 OK`:
-
-```json
-{
-  "job_id": "job_01JZ7X8Y2Q4SQ6Q9W4V4G6R2YE",
-  "entries": [
-    {
-      "timestamp": "2026-07-17T21:45:03Z",
-      "level": "info",
-      "message": "Job input validation started."
-    }
-  ],
-  "page": {
-    "next_cursor": null
+  "summary": {
+    "status": "succeeded",
+    "simulator": "xyce",
+    "template": "rc_lowpass_fixed_v1",
+    "samples": 2013,
+    "duration_seconds": 0.005,
+    "artifacts": [
+      {
+        "filename": "waveform.csv",
+        "content_type": "text/csv",
+        "size_bytes": 54164
+      }
+    ]
   }
 }
 ```
@@ -380,35 +343,23 @@ Errors:
 
 - `401 Unauthorized`.
 - `404 Not Found` for missing jobs or jobs not visible to the user.
-- `400 Bad Request` for invalid cursor or size.
 
 ## GET /api/jobs/{job_id}/artifacts
 
-Lists artifacts for a terminal or partially completed visible job.
-
-Query parameters:
-
-- `limit`: optional page size.
-- `cursor`: optional page cursor.
+Lists artifacts for a visible job. The current phase exposes only
+`waveform.csv` after a successful fixed-template run.
 
 Response `200 OK`:
 
 ```json
 {
-  "items": [
+  "artifacts": [
     {
-      "artifact_id": "art_01JZ7XAZK0DP5NS3HR4XTB4Z6P",
-      "filename": "validation-report.json",
-      "content_type": "application/json",
-      "size_bytes": 2048,
-      "created_at": "2026-07-17T21:45:05Z",
-      "download_url": "/api/jobs/job_01JZ7X8Y2Q4SQ6Q9W4V4G6R2YE/artifacts/art_01JZ7XAZK0DP5NS3HR4XTB4Z6P"
+      "filename": "waveform.csv",
+      "content_type": "text/csv",
+      "size_bytes": 54164
     }
-  ],
-  "page": {
-    "limit": 25,
-    "next_cursor": null
-  }
+  ]
 }
 ```
 
@@ -417,107 +368,41 @@ Errors:
 - `401 Unauthorized`.
 - `404 Not Found` for missing jobs or jobs not visible to the user.
 
-## GET /api/jobs/{job_id}/artifacts/{artifact_id}
+## GET /api/jobs/{job_id}/artifacts/waveform.csv
 
-Downloads one artifact visible to the authenticated user. Authorization is limited to the job owner or a CimaSim administrator resolved through internal role configuration.
+Downloads the single visible CSV artifact for a successful fixed-template job.
 
 Response `200 OK`:
 
 Headers:
 
 ```http
-Content-Type: application/json
-Content-Disposition: attachment; filename="validation-report.json"
+Content-Type: text/csv
+Content-Disposition: attachment; filename="waveform.csv"
 X-Content-Type-Options: nosniff
-Content-Length: 2048
+Cache-Control: no-store
 ```
 
 Rules:
 
 - return `404 Not Found` for nonexistent artifacts, nonexistent jobs, or resources not visible to the user;
 - never reveal host paths in headers, errors, logs, or response bodies;
-- sanitize `filename` for `Content-Disposition`;
-- enforce the configured single artifact size limit, initially 100 MB;
-- allow only explicit downloadable content types in the first version;
-- do not serve HTML, SVG, or JavaScript inline in the first version;
-- rate limit repeated downloads.
-
-Initial downloadable content type allowlist:
-
-- `application/json`
-- `text/plain`
-- `text/csv`
-- `application/octet-stream`
-- `application/gzip`
-- `application/zip`
-
-Range semantics:
-
-- v1 supports at most one byte range for artifacts with a known immutable size;
-- multiple ranges are rejected;
-- invalid or unsatisfiable ranges return `416 Range Not Satisfiable`;
-- range responses include `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff`, `Accept-Ranges: bytes`, and a valid `Content-Range`;
-- range requests count toward download rate limits.
+- enforce a 5 MiB artifact size limit;
+- serve only `text/csv`;
+- do not follow symlinks;
+- return `404` for missing, oversized, non-regular, or non-owned artifacts.
 
 Errors:
 
 - `401 Unauthorized`.
 - `404 Not Found`.
-- `416 Range Not Satisfiable`.
-- `429 Too Many Requests`.
+- `503 Service Unavailable`.
 
-## POST /api/jobs/{job_id}/cancel
+## Future API
 
-Requests cancellation for a non-terminal visible job. The operation is idempotent. The API records `cancel_requested_at` and returns `202 Accepted`; it does not immediately change the visible state to `cancelled`. The worker confirms `cancelled` only after stopping work and attempting controlled cleanup.
-
-Headers:
-
-- `Content-Type: application/json`.
-
-Request:
-
-```json
-{}
-```
-
-Response `202 Accepted`:
-
-```json
-{
-  "job_id": "job_01JZ7X8Y2Q4SQ6Q9W4V4G6R2YE",
-  "state": "running",
-  "cancel_requested_at": "2026-07-17T21:50:00Z",
-  "cancellation": {
-    "status": "requested"
-  }
-}
-```
-
-Repeated response `202 Accepted`:
-
-```json
-{
-  "job_id": "job_01JZ7X8Y2Q4SQ6Q9W4V4G6R2YE",
-  "state": "running",
-  "cancel_requested_at": "2026-07-17T21:50:00Z",
-  "cancellation": {
-    "status": "already_requested"
-  }
-}
-```
-
-Errors:
-
-- `401 Unauthorized`.
-- `404 Not Found`.
-- `409 Conflict` when the job is already terminal.
-- `415 Unsupported Media Type` when the request is not `application/json`.
-
-## DELETE /api/jobs/{job_id}
-
-Deletes retained data for a terminal visible job. It is not used for cancellation.
-
-Response `204 No Content` when deletion completes.
+Arbitrary netlists, parameters, sweeps, cancellation, deletion, logs, Redis,
+PostgreSQL, multiworker execution, and frontend integration are future phases.
+They are not part of the current backend contract.
 
 Errors:
 

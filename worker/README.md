@@ -10,9 +10,12 @@ success, and removes temporary files after each run. Failed runs keep a terminal
 `summary.json` with `status` set to `failed` or `timed_out` and do not write a
 partial `waveform.csv`.
 
-It is not the production worker. It does not implement queues, Redis, database
-state, user submissions, parameter sweeps, parallel execution, model uploads, or
-public endpoints.
+This branch also includes an internal file-spool daemon. The daemon consumes
+only backend-generated jobs for `rc_lowpass_fixed_v1`, claims one job at a time
+with an atomic rename, marks abandoned claims as failed on startup, and writes
+only `summary.json` and `waveform.csv`. It still does not implement Redis,
+database state, user submissions, parameter sweeps, parallel execution, model
+uploads, cancellation, or public endpoints.
 
 Run local unit checks from this directory:
 
@@ -24,3 +27,10 @@ python -m build
 ```
 
 The unit tests use fake executables and do not require Docker or Xyce.
+
+Run the isolated real-Xyce spool smoke test from the repository root:
+
+```bash
+export CIMASIM_XYCE_PREFIX=/path/to/xyce-prefix
+deploy/job-spool-test/smoke-test.sh
+```

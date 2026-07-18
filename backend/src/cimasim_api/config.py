@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import Annotated
 from urllib.parse import ParseResult, urlparse
 
@@ -31,6 +32,12 @@ class Settings(BaseSettings):
     jwks_ttl_seconds: int = 300
     jwks_timeout_seconds: float = 2.0
     jwks_max_bytes: int = 65536
+    jobs_enabled: bool = False
+    job_spool_root: Path = Path("/spool")
+    job_timeout_seconds: int = 30
+    job_active_per_user_limit: int = 2
+    job_active_global_limit: int = 20
+    job_list_limit: int = 100
 
     @property
     def normalized_team_domain(self) -> str | None:

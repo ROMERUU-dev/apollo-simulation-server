@@ -8,6 +8,7 @@ from cimasim_api.errors import (
     api_error_handler,
     internal_error_handler,
 )
+from cimasim_api.jobs.routes import router as jobs_router
 from cimasim_api.routes.health import router as health_router
 from cimasim_api.routes.identity import router as identity_router
 
@@ -32,4 +33,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_exception_handler(Exception, internal_error_handler)
     app.include_router(health_router)
     app.include_router(identity_router)
+    app.include_router(jobs_router)
     return app

@@ -5,6 +5,7 @@ import stat
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -138,13 +139,13 @@ def test_subprocess_arguments_do_not_use_shell(
 ) -> None:
     xyce = write_fake_xyce(tmp_path / "fake-xyce", fake_script(valid_prn()))
     output = tmp_path / "output"
-    seen: dict[str, object] = {}
+    seen: dict[str, Any] = {}
     original_popen = subprocess.Popen
 
     def recording_popen(*args: object, **kwargs: object) -> subprocess.Popen[bytes]:
         seen["args"] = args
         seen["kwargs"] = kwargs
-        return original_popen(*args, **kwargs)
+        return original_popen(*cast(Any, args), **cast(Any, kwargs))
 
     monkeypatch.setattr(subprocess, "Popen", recording_popen)
     FixedRcXyceExecutor(xyce_path=xyce, output_root=output, timeout_seconds=2).run("run-a")

@@ -2,17 +2,21 @@
 
 ## Scope
 
-This document defines the first safe backend architecture for CimaSim before enabling real simulation execution. Phase 1 must support authenticated API workflows, durable job metadata, validation gates, controlled artifact access, and operational visibility without executing arbitrary user-provided netlists.
+This document defines the first safe backend architecture for CimaSim. The
+current internal phase supports authenticated job APIs backed by a file spool and
+executes only the fixed `rc_lowpass_fixed_v1` Xyce template. It still does not
+execute arbitrary user-provided netlists, models, parameters, includes, or
+sweeps.
 
 The backend must remain isolated from the Apollo PACS/DICOM deployment. CimaSim must not share Docker networks, volumes, databases, credentials, service discovery, or runtime privileges with Apollo.
 
 ## Proposed Components
 
 - FastAPI API service: handles authenticated HTTP requests under `/api`, validates Cloudflare Access JWTs, enforces request limits, and writes audit events.
-- Job queue: stores requested jobs and state transitions. Redis or PostgreSQL-backed queuing is acceptable later, but Phase 1 should document the boundary before selecting the implementation.
-- Worker service: consumes validated jobs, creates per-job work directories, applies resource limits, and runs only approved internal commands. Phase 1 workers may stop after validation and lifecycle simulation.
-- Metadata store: keeps users, jobs, state transitions, limits, artifact metadata, and audit events. PostgreSQL is the preferred default for durability.
-- Artifact store: stores user-visible result files by job and user. The initial deployment can use a dedicated local filesystem path owned by CimaSim, with a migration path to object storage.
+- File spool: stores requested fixed-template jobs and state transitions under a dedicated CimaSim-only root such as `/spool`.
+- Worker service: consumes one claimed job at a time, creates per-job temporary directories, applies resource limits, and runs only the bundled fixed RC template through Xyce.
+- Metadata store: this phase uses per-job JSON files. PostgreSQL is a future durability option, not an active dependency.
+- Artifact store: this phase stores only `waveform.csv` under the job directory.
 - Log store: records structured job and API logs without tokens, raw Cloudflare Access assertions, or sensitive headers.
 - Admin maintenance tasks: enforce retention, cleanup abandoned temporary directories, and expire old artifacts.
 
@@ -65,17 +69,19 @@ The worker contract should include:
 - no interpolation of user-provided text into shell commands;
 - controlled cleanup after success, failure, timeout, or cancellation.
 
-Phase 1 must not execute arbitrary netlists. Validation can parse metadata, estimate sweep size, and reject unsafe paths or unsupported files.
+The current worker executes only `rc_lowpass_fixed_v1`. It does not accept a
+netlist path, netlist content on stdin, electrical parameters from the
+environment, simulator selection, includes, model files, sweeps, or shell
+commands from users.
 
 ## Storage Layout
 
-Recommended dedicated paths:
+Current internal spool layout:
 
-- `/var/lib/cimasim/api`: API metadata support files if needed.
-- `/var/lib/cimasim/jobs`: durable per-job metadata snapshots if used outside the database.
-- `/var/lib/cimasim/artifacts`: retained user artifacts.
-- `/var/tmp/cimasim/jobs`: temporary per-job working directories.
-- `/var/log/cimasim`: service and audit logs.
+- `/spool/queued`: atomic markers waiting for a worker.
+- `/spool/claimed`: markers claimed by the single worker.
+- `/spool/jobs/<job_id>`: request, status, summary, and artifacts.
+- `/spool/failed`: failed claim markers retained for operator inspection.
 
 These paths must be owned by a dedicated CimaSim user and group, for example `cimasim-api` and `cimasim-worker`. They must not overlap with Apollo paths, Docker volumes, PACS storage, DICOM storage, database directories, or Cloudflare tunnel credentials.
 
@@ -87,8 +93,8 @@ These paths must be owned by a dedicated CimaSim user and group, for example `ci
 4. FastAPI validates the Cloudflare Access JWT and maps claims to a CimaSim identity.
 5. FastAPI checks payload size, schema, authorization, quotas, global capacity, and idempotency keys.
 6. FastAPI writes job metadata and queues accepted jobs.
-7. Worker claims a job, creates a per-job temporary directory, validates inputs, and records lifecycle events.
-8. Worker stores permitted artifacts and logs.
+7. Worker claims one job with an atomic rename and records `running`.
+8. Worker runs the fixed Xyce template and stores validated `summary.json` and `waveform.csv`.
 9. FastAPI serves job status, logs, and artifacts only to the owning user or authorized administrators.
 
 ## Separation From Apollo
@@ -115,9 +121,10 @@ Current preview:
 - Cloudflare Tunnel publishes `sim.cimasim.online`;
 - Apollo ports and networks are out of scope and must not be modified.
 
-Future backend:
+Current backend and worker test phase:
 
-- FastAPI should bind only to loopback or a private CimaSim-only network.
+- FastAPI job routes are implemented but not exposed by preview Nginx.
+- The isolated `deploy/job-spool-test` project uses no public ports and no active backend containers.
 - `/healthz` and `/readyz` should be reachable only on loopback or that private internal network.
 - The backend must not use `host network`.
 - Containers must not mount `/var/run/docker.sock`.
@@ -187,9 +194,9 @@ Metrics should identify CimaSim services distinctly and must not scrape or depen
 The backend should recover predictably from:
 
 - API restart: in-flight HTTP requests can fail, but persisted jobs remain queryable.
-- Worker restart: claimed jobs return to `queued`, `failed`, or `timed_out` after lease expiry based on last heartbeat.
-- Queue outage: API returns `503` for job creation while read-only job queries continue if metadata storage is available.
-- Metadata database outage: API returns `503` and workers stop claiming new jobs.
+- Worker restart: abandoned claimed jobs are marked `failed` with reason `worker_restarted` and are not executed twice.
+- Queue outage: API returns `503` for job creation and reads when the spool is unavailable.
+- Metadata database outage: not applicable in this phase.
 - Global capacity exhaustion: API rejects new jobs without affecting existing jobs or Apollo.
 - Disk pressure: API rejects new jobs before the artifact or temporary paths are exhausted.
 - Cleanup failure: jobs remain terminal, cleanup is retried by maintenance tasks, and audit logs record the failure.
