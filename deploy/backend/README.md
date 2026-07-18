@@ -26,8 +26,9 @@ docker compose -p cimasim_backend \
   up -d --build
 ```
 
-The host publication is only `127.0.0.1:8089:8080`. There is no public proxy to
-`/api` in this phase.
+The host publication is only `127.0.0.1:8089:8080`. The public preview proxies
+only `GET` and `HEAD` requests for `/api/health` and `/api/me` through the
+shared `cimasim-edge-net` network.
 
 ## Build Context Filtering
 
@@ -98,3 +99,32 @@ The backend uses its own image, container, project name, bridge network, and
 loopback-only port. It has no Apollo networks, volumes, databases, credentials,
 or services attached. The container has no persistent volumes, no Docker socket,
 no privileged mode, no host network, and runs as UID/GID `10001`.
+
+## Preview API Edge Network
+
+The backend stays on `cimasim-backend-net` for runtime egress, including HTTPS
+JWKS retrieval. It also joins the external Docker bridge network
+`cimasim-edge-net` with the alias `cimasim-api`. That network is dedicated to
+CimaSim preview-to-backend traffic and must contain only:
+
+- `cimasim-backend-api`
+- `cimasim-preview-frontend`
+
+Do not attach Apollo, RustDesk, or unrelated containers to `cimasim-edge-net`.
+Do not print AUD, JWTs, `CF_Authorization`, `Cf-Access-Jwt-Assertion`, or the
+external env file in logs, commands, screenshots, or reports.
+
+Apply the backend Compose after the edge network exists:
+
+```sh
+export CIMASIM_BACKEND_ENV_FILE=/home/romeruu/.config/cimasim/backend.env
+export CIMASIM_BACKEND_IMAGE_TAG=581edc6
+
+docker compose -p cimasim_backend \
+  -f deploy/backend/docker-compose.yml \
+  up -d --no-build --force-recreate api
+```
+
+Rollback for the backend side is to restore the previous Compose revision and
+recreate only this service with the same command. Do not use global Docker
+prune commands and do not operate on Apollo projects.

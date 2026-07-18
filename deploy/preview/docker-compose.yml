@@ -3,13 +3,14 @@ services:
     build:
       context: ../..
       dockerfile: deploy/preview/Dockerfile
-    image: cimasim-preview-frontend:a7a5c2e
+    image: cimasim-preview-frontend:${CIMASIM_PREVIEW_IMAGE_TAG:-a7a5c2e}
     container_name: cimasim-preview-frontend
     restart: unless-stopped
     ports:
       - "127.0.0.1:8088:8080"
     networks:
       - cimasim-preview-internal
+      - cimasim-edge-net
     read_only: true
     tmpfs:
       - /tmp
@@ -30,3 +31,6 @@ networks:
   cimasim-preview-internal:
     name: cimasim-preview-internal
     driver: bridge
+  cimasim-edge-net:
+    external: true
+    name: cimasim-edge-net
