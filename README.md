@@ -3,18 +3,25 @@
 A web application for configuring, launching, and reviewing SPICE-family
 circuit simulations (Xyce, ngspice) on a shared simulation server.
 
-This repository currently contains the **Phase 1 frontend**: a complete,
-navigable UI built against simulated (mock) data. It reproduces the
-structure, flows, and visual language of the original design prototype,
+This repository currently contains the CimaSim frontend, the first FastAPI
+backend phase, and internal deployment configuration. The public preview uses
+Cloudflare Access and calls the backend only for authenticated identity and
+health. Projects, jobs, results, uploads, and simulator execution remain
+disabled until their APIs exist.
+
+The frontend reproduces the structure, flows, and visual language of the
+original design prototype,
 [`Apollo Simulation Server (standalone).html`](./Apollo%20Simulation%20Server%20(standalone).html)
 (a Claude Design artifact), rebuilt as a modular React/TypeScript
 application instead of a single monolithic file. The prototype is kept
 in the repository unmodified as the visual/functional reference.
 
-No backend, and no real Xyce/ngspice execution, is implemented yet.
+No real Xyce/ngspice execution is implemented yet.
 
 ## Stack
 
+- **Node.js 24 LTS** — required for the frontend toolchain. Node 18 is not
+  compatible with the current Vite/Vitest/Rolldown stack.
 - **React 19 + TypeScript** — UI and type safety.
 - **Vite** — dev server and build tool.
 - **React Router** — client-side routing (`/`, `/projects`, `/jobs`, etc.).
@@ -55,8 +62,8 @@ frontend/
 │   │   ├── jobs/          # Job queue table, live log panel, progress bar
 │   │   ├── results/       # Result tabs (summary/runs/files/logs/etc.)
 │   │   └── server/        # Resource meters, simulator availability
-│   ├── services/        # ProjectService, JobService, etc. + mock impls
-│   ├── mocks/            # Centralized seed data (projects, jobs, results…)
+│   ├── services/        # ProjectService, JobService, etc. + live/empty impls
+│   ├── mocks/            # Test/dev seed data retained outside production exports
 │   ├── hooks/             # Data-fetching hooks (useJobs, useProjects, …)
 │   ├── types/             # Domain types shared across the app
 │   ├── utils/              # Pure helpers (formatting, parameter sweeps…)
@@ -70,16 +77,25 @@ frontend/
 ## Installation & running
 
 ```bash
+nvm use
 cd frontend
-npm install
+npm ci
 npm run dev       # start the dev server
 npm run build     # type-check and build for production
 npm run preview   # preview the production build
 ```
 
+Do not use `sudo npm`. The host may keep `/usr/bin/node` on Node 18 for system
+compatibility, but repository work should use the Node 24 version selected by
+`.nvmrc`. Production preview images build the frontend inside Docker and serve
+the final static files from Nginx; Node is not part of the runtime image.
+
 ## Testing, linting, formatting
 
 ```bash
+nvm use
+cd frontend
+npm ci
 npm run test          # run the test suite once (Vitest)
 npm run test:watch    # watch mode
 npm run lint           # ESLint
@@ -107,42 +123,31 @@ npm run format:check   # Prettier — check only
 needs somewhere to send a "Resultados" click that isn't a specific
 simulation id, so a small landing/list page was added.
 
-## Architecture & mocks
+## Architecture & data sources
 
 The app is built against a **service layer** (`src/services`), not
 against the mock data directly. Each service is defined as a TypeScript
 interface (`ProjectService`, `SimulationService`, `JobService`,
-`ResultService`, `ServerStatusService` in `src/services/types.ts`) with a
-single in-memory mock implementation that:
-
-- seeds itself from `src/mocks/*` (realistic EDA projects, netlists,
-  parameters, jobs, and results),
-- simulates network latency (`delay()`) so loading states are real and
-  visible,
-- mutates its in-memory data on create/duplicate/archive/delete actions,
-- for jobs, runs a small ticking loop (paused via
-  `document.visibilitychange` when the tab isn't visible) that advances
-  progress, CPU/memory, and the live log for "running" jobs — this is
-  what makes the job execution view feel live without a real backend.
+`ResultService`, `ServerStatusService` in `src/services/types.ts`). Production
+exports use live empty/unavailable implementations until real project, job, and
+result APIs exist.
 
 Pages and features only ever import from `src/services`, never from
 `src/mocks` directly. See [`docs/frontend-architecture.md`](./docs/frontend-architecture.md)
 for the full breakdown of data flow, state, and design decisions.
 
-## Connecting the real backend later
+The browser calls the real backend only through same-origin endpoints:
 
-When the FastAPI backend exists, replace each mock service
-implementation in `src/services/mock*.ts` with one that calls the real
-API (same interface, same method signatures), and swap the export in
-`src/services/index.ts`. No page or feature component should need to
-change, since they only depend on the service interfaces.
+- `GET /api/me`
+- `GET /api/health`
+
+Cloudflare Access handles authentication at the edge. Frontend JavaScript does
+not create JWTs, read cookies, or persist identity in browser storage.
 
 ## Known limitations of this phase
 
-- No real Xyce/ngspice execution — job progress, logs, and results are
-  synthetic.
-- No persistence beyond the in-memory session (a refresh resets projects,
-  jobs, and results — only the theme preference persists, via
-  `localStorage`).
-- Per-run parameter data in results is illustrative, not derived from an
-  actual sweep engine.
+- No real Xyce/ngspice execution.
+- No project, job, result, upload, artifact, queue, or worker API is enabled.
+- Project, job, and result surfaces intentionally show empty states.
+- Only the theme preference persists in `localStorage`; identity is not stored
+  persistently by the frontend.
