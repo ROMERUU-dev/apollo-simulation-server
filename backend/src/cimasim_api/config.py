@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     prometheus_timeout_seconds: float = 2.0
     monitoring_cache_seconds: int = 15
     metrics_allowed_cidr: str = "127.0.0.0/8"
+    custom_netlists_enabled: bool = False
+    allow_legacy_rc_submission: bool = True
+    custom_job_spool_root: Path = Path("/custom-spool")
+    custom_job_active_per_user_limit: int = 1
+    custom_job_hourly_per_user_limit: int = 10
 
     @property
     def normalized_team_domain(self) -> str | None:

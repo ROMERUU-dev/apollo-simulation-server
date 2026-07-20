@@ -40,6 +40,14 @@ def readyz(
                 dependencies=dependencies,
             )
         dependencies["job_spool"] = "ok"
+    if settings.custom_netlists_enabled:
+        if not spool_is_ready(settings.custom_job_spool_root):
+            response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+            dependencies["custom_job_spool"] = "unavailable"
+            return ReadinessResponse(
+                status="not_ready", service="cimasim-api", dependencies=dependencies
+            )
+        dependencies["custom_job_spool"] = "ok"
     return ReadinessResponse(
         status="ready",
         service="cimasim-api",
@@ -55,6 +63,7 @@ def api_health(
 ) -> FrontendHealthResponse:
     response.headers["Cache-Control"] = "no-store"
     job_submission = "not_available"
+    custom_netlists = "not_available"
     response_status = "ok"
     if settings.jobs_enabled:
         if spool_is_ready(settings.job_spool_root):
@@ -63,8 +72,19 @@ def api_health(
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
             response_status = "degraded"
             job_submission = "temporarily_unavailable"
+    if settings.custom_netlists_enabled:
+        if spool_is_ready(settings.custom_job_spool_root):
+            custom_netlists = "available"
+        else:
+            response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+            response_status = "degraded"
+            custom_netlists = "temporarily_unavailable"
     return FrontendHealthResponse(
         status=response_status,
         service="cimasim",
-        features={"identity": "available", "job_submission": job_submission},
+        features={
+            "identity": "available",
+            "job_submission": job_submission,
+            "custom_netlists": custom_netlists,
+        },
     )

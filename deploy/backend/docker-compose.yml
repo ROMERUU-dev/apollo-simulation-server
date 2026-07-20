@@ -18,6 +18,9 @@ services:
       CIMASIM_ADMIN_EMAIL_ALLOWLIST_FILE: /run/secrets/cimasim-admin-emails
       CIMASIM_PROMETHEUS_URL: http://prometheus:9090
       CIMASIM_METRICS_ALLOWED_CIDR: 172.31.240.0/24
+      CIMASIM_CUSTOM_NETLISTS_ENABLED: "false"
+      CIMASIM_ALLOW_LEGACY_RC_SUBMISSION: "false"
+      CIMASIM_CUSTOM_JOB_SPOOL_ROOT: /custom-spool
     ports:
       - "127.0.0.1:8089:8080"
     networks:

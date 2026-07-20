@@ -84,12 +84,15 @@ valid_body='{"name":"Proxy smoke","template_id":"rc_lowpass_fixed_v1"}'
 expect_status GET /api/jobs 401
 expect_status HEAD /api/jobs 401
 expect_status POST /api/jobs 401 "$valid_body"
+expect_status POST /api/jobs/preflight 401 '{"name":"x","template_id":"custom_xyce_netlist_v1","netlist":"* x\\nR1 a 0 1k\\n.TRAN 1u 1m\\n.END\\n","requested_outputs":["V(a)"]}'
 expect_status GET "/api/jobs/${valid_job_id}" 401
 expect_status HEAD "/api/jobs/${valid_job_id}" 401
 expect_status GET "/api/jobs/${valid_job_id}/artifacts" 401
 expect_status HEAD "/api/jobs/${valid_job_id}/artifacts" 401
 expect_status GET "/api/jobs/${valid_job_id}/artifacts/waveform.csv" 401
 expect_status HEAD "/api/jobs/${valid_job_id}/artifacts/waveform.csv" 401
+expect_status GET "/api/jobs/${valid_job_id}/artifacts/results.csv" 401
+expect_status HEAD "/api/jobs/${valid_job_id}/artifacts/results.csv" 401
 expect_status GET /api/jobs/foo 404
 expect_status GET /api/jobs/job_../artifacts 404
 expect_status GET /api/jobs/job_000000000000000000000000000000000 404

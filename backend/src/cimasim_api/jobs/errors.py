@@ -22,6 +22,20 @@ class JobLimitExceededError(ApiError):
     no_store = True
 
 
+class LegacyTemplateDisabledError(ApiError):
+    status_code = 410
+    code = "LEGACY_TEMPLATE_DISABLED"
+    message = "Legacy RC templates are read-only."
+    no_store = True
+
+
+class CustomNetlistsDisabledError(ApiError):
+    status_code = 503
+    code = "CUSTOM_NETLISTS_DISABLED"
+    message = "Custom netlist execution is not available."
+    no_store = True
+
+
 class IdempotencyConflictError(ApiError):
     status_code = 409
     code = "idempotency_conflict"
