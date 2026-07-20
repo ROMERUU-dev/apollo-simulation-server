@@ -6,10 +6,24 @@ from pathlib import Path
 
 from cimasim_worker.daemon import WorkerDaemon
 from cimasim_worker.executor import WorkerError
+from cimasim_worker.rc_parameters import RcParameters
 from cimasim_worker.spool import SPOOL_DIR_MODE, SPOOL_FILE_MODE, FileSpool
 
+PARAMETERS: dict[str, object] = {
+    "resistance_ohms": 1000,
+    "capacitance_farads": 1e-6,
+    "input_voltage_volts": 1,
+    "duration_seconds": 0.005,
+}
 
-def make_job(root: Path, job_id: str = "job_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") -> str:
+
+def make_job(
+    root: Path,
+    job_id: str = "job_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    *,
+    template_id: str = "rc_lowpass_fixed_v1",
+    parameters: dict[str, object] | None = None,
+) -> str:
     root.mkdir(parents=True, exist_ok=True)
     os.chmod(root, SPOOL_DIR_MODE)
     for name in ("queued", "claimed", "jobs", "failed"):
@@ -23,13 +37,15 @@ def make_job(root: Path, job_id: str = "job_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") -
         "job_id": job_id,
         "user_id": "user-1",
         "name": "RC",
-        "template_id": "rc_lowpass_fixed_v1",
+        "template_id": template_id,
         "simulator": "xyce",
         "timeout_seconds": 30,
         "idempotency_key_hash": None,
         "body_hash": None,
         "created_at": "2026-01-01T00:00:00+00:00",
     }
+    if parameters is not None:
+        request["parameters"] = parameters
     status = {
         "job_id": job_id,
         "user_id": "user-1",
@@ -56,21 +72,26 @@ class FakeExecutor:
     def __init__(self, status: str = "succeeded") -> None:
         self.status = status
         self.calls: list[str] = []
+        self.parameters: list[RcParameters | None] = []
 
-    def run(self, run_id: str) -> dict[str, object]:
+    def run(self, run_id: str, parameters: RcParameters | None = None) -> dict[str, object]:
         self.calls.append(run_id)
+        self.parameters.append(parameters)
         output = Path(self.output_root) / run_id  # type: ignore[attr-defined]
         output.mkdir(parents=True)
-        summary = {
+        summary: dict[str, object] = {
             "status": self.status,
             "simulator": "xyce",
-            "template": "rc_lowpass_fixed_v1",
+            "template": "rc_lowpass_param_v1" if parameters is not None else "rc_lowpass_fixed_v1",
             "samples": 2013,
             "duration_seconds": 0.005,
             "artifacts": [
                 {"filename": "waveform.csv", "content_type": "text/csv", "size_bytes": 12}
             ],
         }
+        if parameters is not None:
+            summary["parameters"] = parameters.as_dict()
+            summary["derived"] = {"time_constant_seconds": parameters.time_constant_seconds}
         (output / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
         (output / "waveform.csv").write_text("time,v\n0,0\n", encoding="utf-8")
         return summary
@@ -80,7 +101,7 @@ class FailingExecutor:
     def __init__(self, timeout: bool = False) -> None:
         self.timeout = timeout
 
-    def run(self, run_id: str) -> dict[str, object]:
+    def run(self, run_id: str, parameters: RcParameters | None = None) -> dict[str, object]:
         output = Path(self.output_root) / run_id  # type: ignore[attr-defined]
         output.mkdir(parents=True)
         status = "timed_out" if self.timeout else "failed"
@@ -155,3 +176,59 @@ def test_invalid_request_is_not_executed(tmp_path: Path) -> None:
     assert status["status"] == "failed"
     assert status["reason"] == "unsupported job template"
     assert (tmp_path / "failed" / f"{job_id}.json").is_file()
+
+
+def test_historical_fixed_request_remains_readable(tmp_path: Path) -> None:
+    job_id = make_job(tmp_path)
+    request = FileSpool(tmp_path).read_request(job_id)
+    assert request.template_id == "rc_lowpass_fixed_v1"
+    assert request.parameters is None
+
+
+def test_parameterized_request_is_revalidated_and_executed(tmp_path: Path) -> None:
+    job_id = make_job(
+        tmp_path,
+        template_id="rc_lowpass_param_v1",
+        parameters=PARAMETERS,
+    )
+    executor = FakeExecutor()
+    WorkerDaemon(FileSpool(tmp_path), executor=executor).run(once=True)  # type: ignore[arg-type]
+    status = json.loads((tmp_path / "jobs" / job_id / "status.json").read_text())
+    summary = json.loads((tmp_path / "jobs" / job_id / "summary.json").read_text())
+    assert status["status"] == "succeeded"
+    assert executor.parameters[0] is not None
+    assert summary["template"] == "rc_lowpass_param_v1"
+    assert summary["parameters"] == PARAMETERS
+
+
+def test_parameterized_request_rejects_schema_range_and_non_finite(tmp_path: Path) -> None:
+    cases: list[dict[str, object]] = [
+        {**PARAMETERS, "extra": 1},
+        {**PARAMETERS, "resistance_ohms": 0},
+        {**PARAMETERS, "resistance_ohms": "1k"},
+        {**PARAMETERS, "capacitance_farads": float("nan")},
+        {**PARAMETERS, "duration_seconds": 1, "resistance_ohms": 1, "capacitance_farads": 1e-12},
+    ]
+    for index, parameters in enumerate(cases):
+        root = tmp_path / str(index)
+        job_id = make_job(
+            root,
+            template_id="rc_lowpass_param_v1",
+            parameters=parameters,
+        )
+        executor = FakeExecutor()
+        WorkerDaemon(FileSpool(root), executor=executor).run(once=True)  # type: ignore[arg-type]
+        status = json.loads((root / "jobs" / job_id / "status.json").read_text())
+        assert status["status"] == "failed"
+        assert executor.calls == []
+
+
+def test_fixed_request_rejects_even_null_parameters(tmp_path: Path) -> None:
+    job_id = make_job(tmp_path, parameters={})
+    request_path = tmp_path / "jobs" / job_id / "request.json"
+    request = json.loads(request_path.read_text())
+    request["parameters"] = None
+    request_path.write_text(json.dumps(request), encoding="utf-8")
+    executor = FakeExecutor()
+    WorkerDaemon(FileSpool(tmp_path), executor=executor).run(once=True)  # type: ignore[arg-type]
+    assert executor.calls == []

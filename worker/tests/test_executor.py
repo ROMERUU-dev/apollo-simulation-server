@@ -10,6 +10,13 @@ from typing import Any, cast
 import pytest
 
 from cimasim_worker.executor import FixedRcXyceExecutor, WorkerError, sanitize_message
+from cimasim_worker.rc_parameters import (
+    RcParameterError,
+    RcParameters,
+    format_scientific,
+    parse_rc_parameters,
+    render_parameterized_netlist,
+)
 from cimasim_worker.validation import parse_xyce_prn, validate_rc_lowpass
 
 
@@ -161,3 +168,78 @@ def test_validate_rc_lowpass_accepts_expected_shape(tmp_path: Path) -> None:
     columns, rows = parse_xyce_prn(waveform)
     summary = validate_rc_lowpass(columns, rows)
     assert summary.samples == 2001
+
+
+PARAMETERS = RcParameters(
+    resistance_ohms=1000,
+    capacitance_farads=1e-6,
+    input_voltage_volts=3.3,
+    duration_seconds=0.005,
+)
+
+
+def parameterized_prn(parameters: RcParameters, samples: int = 2001) -> str:
+    lines = ["Index       TIME              V(IN)            V(OUT)"]
+    for index in range(samples):
+        time_value = parameters.duration_seconds * index / (samples - 1)
+        vin = 0.0 if index == 0 else parameters.input_voltage_volts
+        vout = parameters.input_voltage_volts * (
+            1.0 - pow(2.718281828459045, -time_value / parameters.time_constant_seconds)
+        )
+        lines.append(f"{index} {time_value:.12e} {vin:.12e} {vout:.12e}")
+    return "\n".join(lines) + "\n"
+
+
+def test_parameter_schema_and_physical_values_are_revalidated() -> None:
+    parsed = parse_rc_parameters(PARAMETERS.as_dict())
+    assert parsed.time_constant_seconds == pytest.approx(0.001)
+    assert parsed.time_step_seconds == pytest.approx(2.5e-6)
+    for invalid in (
+        {**PARAMETERS.as_dict(), "extra": 1},
+        {**PARAMETERS.as_dict(), "resistance_ohms": "1k"},
+        {**PARAMETERS.as_dict(), "input_voltage_volts": float("inf")},
+        {
+            **PARAMETERS.as_dict(),
+            "duration_seconds": 1,
+            "resistance_ohms": 1,
+            "capacitance_farads": 1e-12,
+        },
+    ):
+        with pytest.raises(RcParameterError):
+            parse_rc_parameters(invalid)
+
+
+def test_scientific_format_is_bounded_and_locale_independent() -> None:
+    assert format_scientific(1000) == "1.000000000000e+03"
+    assert format_scientific(1e-6) == "1.000000000000e-06"
+    assert set(format_scientific(3.3)) <= set("0123456789.+-e")
+    with pytest.raises(RcParameterError):
+        format_scientific(float("nan"))
+
+
+def test_generated_netlist_contains_only_controlled_rc_statements() -> None:
+    netlist = render_parameterized_netlist(PARAMETERS)
+    lower = netlist.lower()
+    assert "1.000000000000e+03" in netlist
+    assert "3.300000000000e+00" in netlist
+    assert ".include" not in lower
+    assert ".lib" not in lower
+    assert ".model" not in lower
+    assert "/" not in netlist
+    assert "@" not in netlist
+    directives = [line for line in netlist.splitlines() if line.startswith(".")]
+    assert [line.split()[0].lower() for line in directives] == [".tran", ".print", ".end"]
+
+
+def test_parameterized_executor_writes_metadata_and_validated_waveform(tmp_path: Path) -> None:
+    xyce = write_fake_xyce(tmp_path / "fake-xyce", fake_script(parameterized_prn(PARAMETERS)))
+    summary = FixedRcXyceExecutor(
+        xyce_path=xyce,
+        output_root=tmp_path / "output",
+        timeout_seconds=2,
+    ).run("run-param", PARAMETERS)
+    assert summary["status"] == "succeeded"
+    assert summary["template"] == "rc_lowpass_param_v1"
+    assert summary["parameters"] == PARAMETERS.as_dict()
+    assert summary["derived"] == {"time_constant_seconds": pytest.approx(0.001)}
+    assert summary["samples"] == 2001

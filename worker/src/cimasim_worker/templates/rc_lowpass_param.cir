@@ -1,0 +1,7 @@
+* CimaSim bounded educational RC low-pass circuit
+Vin in 0 PULSE(0 @INPUT_VOLTAGE@ 0 @TIME_STEP@ @TIME_STEP@ @PULSE_WIDTH@ @PULSE_PERIOD@)
+R1 in out @RESISTANCE@
+C1 out 0 @CAPACITANCE@
+.tran @TIME_STEP@ @DURATION@ 0 @TIME_STEP@
+.print tran V(in) V(out)
+.end

@@ -4,7 +4,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Final, Literal
 
-TEMPLATE_ID: Final[Literal["rc_lowpass_fixed_v1"]] = "rc_lowpass_fixed_v1"
+from cimasim_worker.rc_parameters import RcParameters
+
+FIXED_TEMPLATE_ID: Final[Literal["rc_lowpass_fixed_v1"]] = "rc_lowpass_fixed_v1"
+PARAM_TEMPLATE_ID: Final[Literal["rc_lowpass_param_v1"]] = "rc_lowpass_param_v1"
+TEMPLATE_ID = FIXED_TEMPLATE_ID
+type TemplateId = Literal["rc_lowpass_fixed_v1", "rc_lowpass_param_v1"]
 SIMULATOR: Final[Literal["xyce"]] = "xyce"
 TERMINAL_STATES = {"succeeded", "failed", "timed_out"}
 
@@ -14,10 +19,11 @@ class SpoolRequest:
     job_id: str
     user_id: str
     name: str
-    template_id: Literal["rc_lowpass_fixed_v1"]
+    template_id: TemplateId
     simulator: Literal["xyce"]
     timeout_seconds: int
     created_at: str
+    parameters: RcParameters | None = None
 
 
 @dataclass(frozen=True)

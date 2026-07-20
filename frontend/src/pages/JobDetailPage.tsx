@@ -7,6 +7,7 @@ import { PageHeader } from '../components/layout/PageHeader'
 import { LoadingState } from '../components/feedback/LoadingState'
 import { ErrorState } from '../components/feedback/ErrorState'
 import { FixedJobStatusBadge } from '../features/jobs/FixedJobStatusBadge'
+import { jobTemplateLabel } from '../features/jobs/jobTemplate'
 import { ResultChart } from '../components/charts/ResultChart'
 import { useJob } from '../hooks/useJobs'
 import { formatBytes, formatDateTime } from '../utils/format'
@@ -61,13 +62,15 @@ export default function JobDetailPage() {
 
   const statusMessage = jobStatusMessage(job.status)
   const artifact = job.summary?.artifacts.find((item) => item.filename === 'waveform.csv')
+  const parameters = job.parameters ?? job.summary?.parameters ?? null
+  const derived = job.derived ?? job.summary?.derived ?? null
   const shortJobId = `${job.job_id.slice(0, 12)}…`
 
   return (
     <div>
       <PageHeader
         title={job.name}
-        subtitle={`Trabajo ${shortJobId} · Xyce · plantilla RC fija`}
+        subtitle={`Trabajo ${shortJobId} · Xyce · ${jobTemplateLabel(job.template_id)}`}
         actions={<FixedJobStatusBadge status={job.status} />}
       />
 
@@ -123,6 +126,40 @@ export default function JobDetailPage() {
           </strong>
         </div>
       </div>
+
+      {parameters && (
+        <section className="fixed-job-parameters-readonly" aria-labelledby="parameters-heading">
+          <h2 id="parameters-heading">Parámetros normalizados</h2>
+          <div className="fixed-job-summary-grid">
+            <div className="fixed-job-stat">
+              <span>Resistencia</span>
+              <strong>{parameters.resistance_ohms.toExponential(6)} Ω</strong>
+            </div>
+            <div className="fixed-job-stat">
+              <span>Capacitancia</span>
+              <strong>{parameters.capacitance_farads.toExponential(6)} F</strong>
+            </div>
+            <div className="fixed-job-stat">
+              <span>Voltaje de entrada</span>
+              <strong>{parameters.input_voltage_volts.toExponential(6)} V</strong>
+            </div>
+            <div className="fixed-job-stat">
+              <span>Duración solicitada</span>
+              <strong>{parameters.duration_seconds.toExponential(6)} s</strong>
+            </div>
+            <div className="fixed-job-stat">
+              <span>Constante de tiempo τ</span>
+              <strong>
+                {(
+                  derived?.time_constant_seconds ??
+                  parameters.resistance_ohms * parameters.capacitance_farads
+                ).toExponential(6)}{' '}
+                s
+              </strong>
+            </div>
+          </div>
+        </section>
+      )}
 
       {job.status === 'succeeded' && artifact && (
         <section aria-labelledby="waveform-heading">

@@ -76,7 +76,13 @@ def parse_xyce_prn(path: Path) -> tuple[list[str], list[list[float]]]:
     return data_columns, rows
 
 
-def validate_rc_lowpass(columns: list[str], rows: list[list[float]]) -> WaveformSummary:
+def validate_rc_lowpass(
+    columns: list[str],
+    rows: list[list[float]],
+    *,
+    expected_input_voltage: float = 1.0,
+    time_constant_seconds: float = 1e-3,
+) -> WaveformSummary:
     time_idx = columns.index("TIME")
     vin_idx = columns.index("V(IN)")
     vout_idx = columns.index("V(OUT)")
@@ -90,20 +96,26 @@ def validate_rc_lowpass(columns: list[str], rows: list[list[float]]) -> Waveform
 
     if abs(vouts[0]) > 1e-6:
         raise ValidationError("RC output does not start near zero")
-    if vins[-1] < 0.99:
-        raise ValidationError("RC input did not settle high")
-    if vouts[-1] < 0.95:
-        raise ValidationError("RC output did not charge as expected")
-    if max(vouts) > 1.02 or min(vouts) < -1e-6:
+    input_tolerance = max(expected_input_voltage * 0.02, 1e-6)
+    if abs(vins[-1] - expected_input_voltage) > input_tolerance:
+        raise ValidationError("RC input did not reach the expected voltage")
+    duration = times[-1] - times[0]
+    expected_output = expected_input_voltage * (1.0 - math.exp(-duration / time_constant_seconds))
+    output_tolerance = max(expected_input_voltage * 0.03, 5e-6)
+    if abs(vouts[-1] - expected_output) > output_tolerance:
+        raise ValidationError("RC output is inconsistent with the bounded parameters")
+    if max(vouts) > expected_input_voltage * 1.02 or min(vouts) < -output_tolerance:
         raise ValidationError("RC output is outside expected bounds")
-    if any(curr + 1e-6 < prev for prev, curr in zip(vouts, vouts[1:], strict=False)):
+    if any(
+        curr + output_tolerance / 10 < prev for prev, curr in zip(vouts, vouts[1:], strict=False)
+    ):
         raise ValidationError("RC output is not monotonically charging")
 
     return WaveformSummary(
         samples=len(rows),
         input_final=vins[-1],
         output_final=vouts[-1],
-        duration_seconds=times[-1] - times[0],
+        duration_seconds=duration,
     )
 
 

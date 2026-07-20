@@ -3,10 +3,11 @@
 ## Scope
 
 This document defines the first safe backend architecture for CimaSim. The
-current internal phase supports authenticated job APIs backed by a file spool and
-executes only the fixed `rc_lowpass_fixed_v1` Xyce template. It still does not
-execute arbitrary user-provided netlists, models, parameters, includes, or
-sweeps.
+current phase supports authenticated job APIs backed by a file spool and exactly
+two packaged Xyce templates: `rc_lowpass_fixed_v1` and
+`rc_lowpass_param_v1`. The second template accepts four bounded numeric SI
+values. Neither accepts arbitrary user-provided netlists, models, includes,
+paths, expressions, commands, or sweeps.
 
 The backend must remain isolated from the Apollo PACS/DICOM deployment. CimaSim must not share Docker networks, volumes, databases, credentials, service discovery, or runtime privileges with Apollo.
 
@@ -14,7 +15,7 @@ The backend must remain isolated from the Apollo PACS/DICOM deployment. CimaSim 
 
 - FastAPI API service: handles authenticated HTTP requests under `/api`, validates Cloudflare Access JWTs, enforces request limits, and writes audit events.
 - File spool: stores requested fixed-template jobs and state transitions under a dedicated CimaSim-only root such as `/spool`.
-- Worker service: consumes one claimed job at a time, creates per-job temporary directories, applies resource limits, and runs only the bundled fixed RC template through Xyce.
+- Worker service: consumes one claimed job at a time, creates per-job temporary directories, applies resource limits, and runs only a bundled authorized RC template through Xyce.
 - Metadata store: this phase uses per-job JSON files. PostgreSQL is a future durability option, not an active dependency.
 - Artifact store: this phase stores only `waveform.csv` under the job directory.
 - Log store: records structured job and API logs without tokens, raw Cloudflare Access assertions, or sensitive headers.
@@ -69,10 +70,13 @@ The worker contract should include:
 - no interpolation of user-provided text into shell commands;
 - controlled cleanup after success, failure, timeout, or cancellation.
 
-The current worker executes only `rc_lowpass_fixed_v1`. It does not accept a
-netlist path, netlist content on stdin, electrical parameters from the
-environment, simulator selection, includes, model files, sweeps, or shell
-commands from users.
+The current worker executes only `rc_lowpass_fixed_v1` or
+`rc_lowpass_param_v1`. It independently validates the latter's resistance,
+capacitance, input voltage, duration, time constant, and duration/time-constant
+ratio. It generates the netlist from a packaged template using controlled
+scientific-number formatting. It does not accept a netlist path, netlist text,
+parameters from the environment, simulator selection, includes, model files,
+sweeps, or shell commands from users.
 
 ## Storage Layout
 
@@ -98,7 +102,7 @@ database directories, or Cloudflare tunnel credentials.
 5. FastAPI checks payload size, schema, authorization, quotas, global capacity, and idempotency keys.
 6. FastAPI writes job metadata and queues accepted jobs.
 7. Worker claims one job with an atomic rename and records `running`.
-8. Worker runs the fixed Xyce template and stores validated `summary.json` and `waveform.csv`.
+8. Worker revalidates and runs the selected packaged Xyce template, then stores validated `summary.json` and `waveform.csv`.
 9. FastAPI serves job status, logs, and artifacts only to the owning user or authorized administrators.
 
 ## Separation From Apollo

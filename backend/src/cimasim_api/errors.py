@@ -2,6 +2,7 @@ from collections.abc import Awaitable, Callable
 from uuid import uuid4
 
 from fastapi import Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -72,6 +73,22 @@ async def api_error_handler(request: Request, exc: Exception) -> JSONResponse:
             "error": {
                 "code": exc.code,
                 "message": exc.message,
+                "request_id": request_id_for(request),
+            }
+        },
+    )
+
+
+async def request_validation_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    if not isinstance(exc, RequestValidationError):
+        return await internal_error_handler(request, exc)
+    return JSONResponse(
+        status_code=422,
+        headers={"Cache-Control": "no-store"},
+        content={
+            "error": {
+                "code": "invalid_request",
+                "message": "The request body is invalid.",
                 "request_id": request_id_for(request),
             }
         },

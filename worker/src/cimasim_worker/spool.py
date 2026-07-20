@@ -10,12 +10,14 @@ from typing import Any, Final
 
 from cimasim_worker.executor import MAX_CAPTURE_BYTES, sanitize_message
 from cimasim_worker.job_models import (
+    FIXED_TEMPLATE_ID,
+    PARAM_TEMPLATE_ID,
     SIMULATOR,
-    TEMPLATE_ID,
     TERMINAL_STATES,
     SpoolRequest,
     utc_timestamp,
 )
+from cimasim_worker.rc_parameters import RcParameterError, parse_rc_parameters
 
 MAX_JSON_BYTES: Final = 64 * 1024
 MAX_ARTIFACT_BYTES: Final = 5 * 1024 * 1024
@@ -90,12 +92,28 @@ class FileSpool:
             "idempotency_key_hash",
             "body_hash",
         }
-        if set(data) != expected:
+        allowed = expected | {"parameters"}
+        if not expected <= set(data) <= allowed:
             raise SpoolError("request schema is invalid")
         if data["job_id"] != job_id:
             raise SpoolError("request job id mismatch")
-        if data["template_id"] != TEMPLATE_ID or data["simulator"] != SIMULATOR:
+        template_id = data["template_id"]
+        if (
+            template_id not in {FIXED_TEMPLATE_ID, PARAM_TEMPLATE_ID}
+            or data["simulator"] != SIMULATOR
+        ):
             raise SpoolError("unsupported job template")
+        parameters = None
+        try:
+            if template_id == FIXED_TEMPLATE_ID:
+                if "parameters" in data:
+                    raise SpoolError("fixed template does not accept parameters")
+            else:
+                if "parameters" not in data:
+                    raise SpoolError("parameterized template requires parameters")
+                parameters = parse_rc_parameters(data["parameters"])
+        except RcParameterError as exc:
+            raise SpoolError(str(exc)) from exc
         timeout = data["timeout_seconds"]
         if not isinstance(timeout, int) or timeout <= 0 or timeout > 60:
             raise SpoolError("timeout is invalid")
@@ -103,10 +121,11 @@ class FileSpool:
             job_id=job_id,
             user_id=_require_text(data["user_id"]),
             name=_require_text(data["name"]),
-            template_id=TEMPLATE_ID,
+            template_id=template_id,
             simulator=SIMULATOR,
             timeout_seconds=timeout,
             created_at=_require_text(data["created_at"]),
+            parameters=parameters,
         )
 
     def write_status(

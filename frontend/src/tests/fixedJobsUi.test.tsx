@@ -76,6 +76,34 @@ describe('fixed jobs UI', () => {
     expect(screen.getAllByRole('link')).toHaveLength(1)
   })
 
+  it('labels fixed and configurable templates in the jobs list', async () => {
+    const parameterized = {
+      ...succeededJob,
+      job_id: `job_${'8'.repeat(32)}`,
+      name: 'RC configurable',
+      template_id: 'rc_lowpass_param_v1',
+      parameters: {
+        resistance_ohms: 1000,
+        capacitance_farads: 1e-6,
+        input_voltage_volts: 1,
+        duration_seconds: 0.005,
+      },
+      derived: { time_constant_seconds: 0.001 },
+      summary: { ...succeededJob.summary, template: 'rc_lowpass_param_v1' },
+    }
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ jobs: [parameterized, succeededJob] }))
+    render(
+      <MemoryRouter>
+        <JobsProvider>
+          <JobsPage />
+        </JobsProvider>
+      </MemoryRouter>,
+    )
+    expect((await screen.findAllByText('RC configurable')).length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Prueba RC fija').length).toBeGreaterThan(0)
+    expect(screen.getByText('rc_lowpass_param_v1')).toBeInTheDocument()
+  })
+
   it('shows the succeeded summary, validated graph, metrics, and same-origin download', async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(jsonResponse(succeededJob))
@@ -100,5 +128,53 @@ describe('fixed jobs UI', () => {
       'href',
       `/api/jobs/${JOB_ID}/artifacts/waveform.csv`,
     )
+  })
+
+  it('lists both templates and displays read-only configurable parameters', async () => {
+    const parameterized = {
+      ...succeededJob,
+      job_id: `job_${'7'.repeat(32)}`,
+      name: 'RC configurable real',
+      template_id: 'rc_lowpass_param_v1',
+      parameters: {
+        resistance_ohms: 10_000,
+        capacitance_farads: 1e-7,
+        input_voltage_volts: 3.3,
+        duration_seconds: 0.005,
+      },
+      derived: { time_constant_seconds: 0.001 },
+      summary: {
+        ...succeededJob.summary,
+        template: 'rc_lowpass_param_v1',
+        parameters: {
+          resistance_ohms: 10_000,
+          capacitance_farads: 1e-7,
+          input_voltage_volts: 3.3,
+          duration_seconds: 0.005,
+        },
+        derived: { time_constant_seconds: 0.001 },
+      },
+    }
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(parameterized))
+      .mockResolvedValueOnce(
+        new Response('time_seconds,input_volts,output_volts\n0,0,0\n0.005,3.3,3.2777\n', {
+          status: 200,
+          headers: { 'content-type': 'text/csv' },
+        }),
+      )
+    render(
+      <MemoryRouter initialEntries={[`/jobs/${parameterized.job_id}`]}>
+        <Routes>
+          <Route path="/jobs/:jobId" element={<JobDetailPage />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    expect(await screen.findByText('RC configurable real')).toBeInTheDocument()
+    expect(screen.getByText('Parámetros normalizados')).toBeInTheDocument()
+    expect(screen.getByText('1.000000e+4 Ω')).toBeInTheDocument()
+    expect(screen.getByText('3.300000e+0 V')).toBeInTheDocument()
+    expect(screen.getByText('rc_lowpass_param_v1')).toBeInTheDocument()
+    expect(await screen.findByLabelText(/series V\(in\) y V\(out\)/i)).toBeInTheDocument()
   })
 })

@@ -23,6 +23,7 @@ from cimasim_api.jobs.errors import (
 )
 from cimasim_api.jobs.models import (
     ACTIVE_STATES,
+    DerivedMetrics,
     JobCreateRequest,
     JobResponse,
     JobStatus,
@@ -89,16 +90,19 @@ class JobStore:
         except OSError as exc:
             raise JobSpoolUnavailableError from exc
 
-        stored = StoredJobRequest(
-            job_id=job_id,
-            user_id=user_id,
-            name=request.name,
-            template_id=request.template_id,
-            timeout_seconds=self.settings.job_timeout_seconds,
-            idempotency_key_hash=key_hash,
-            body_hash=body_hash,
-            created_at=created_at,
-        )
+        stored_data: dict[str, Any] = {
+            "job_id": job_id,
+            "user_id": user_id,
+            "name": request.name,
+            "template_id": request.template_id,
+            "timeout_seconds": self.settings.job_timeout_seconds,
+            "idempotency_key_hash": key_hash,
+            "body_hash": body_hash,
+            "created_at": created_at,
+        }
+        if request.parameters is not None:
+            stored_data["parameters"] = request.parameters
+        stored = StoredJobRequest.model_validate(stored_data)
         status = JobStatus(
             job_id=job_id,
             user_id=user_id,
@@ -106,7 +110,10 @@ class JobStore:
             created_at=created_at,
             updated_at=created_at,
         )
-        _atomic_write_json(job_dir / "request.json", stored.model_dump(mode="json"))
+        stored_data = stored.model_dump(mode="json")
+        if stored.parameters is None:
+            stored_data.pop("parameters")
+        _atomic_write_json(job_dir / "request.json", stored_data)
         _atomic_write_json(job_dir / "status.json", status.model_dump(mode="json"))
         _atomic_write_json(self.root / "queued" / f"{job_id}.json", {"job_id": job_id})
         return self.to_response(stored, status), True
@@ -203,6 +210,12 @@ class JobStore:
             created_at=status.created_at,
             updated_at=status.updated_at,
             summary=summary,
+            parameters=stored.parameters,
+            derived=(
+                DerivedMetrics(time_constant_seconds=stored.parameters.time_constant_seconds)
+                if stored.parameters is not None
+                else None
+            ),
         )
 
     def _read_summary(self, job_id: str) -> JobSummary | None:
@@ -224,7 +237,10 @@ def _generate_job_id() -> str:
 
 
 def _body_hash(request: JobCreateRequest) -> str:
-    raw = request.model_dump_json(exclude_none=False).encode("utf-8")
+    payload: dict[str, Any] = {"name": request.name, "template_id": request.template_id}
+    if request.parameters is not None:
+        payload["parameters"] = request.parameters.model_dump(mode="json")
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
     return hashlib.sha256(raw).hexdigest()
 
 

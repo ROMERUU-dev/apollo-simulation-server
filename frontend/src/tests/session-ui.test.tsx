@@ -64,7 +64,7 @@ describe('live session UI', () => {
     expect(await screen.findByText('Conectado')).toBeInTheDocument()
     expect(screen.getByText('Trabajos activos').nextElementSibling).toHaveTextContent('0')
     expect(screen.getByText('Simulaciones completadas').nextElementSibling).toHaveTextContent('0')
-    expect(screen.getByText(/solo está disponible la prueba RC fija/i)).toBeInTheDocument()
+    expect(screen.getByText(/prueba RC fija y la plantilla RC configurable/i)).toBeInTheDocument()
     expect(screen.queryByText(/HP Z8/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/CPU/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/apollo-hpz8/i)).not.toBeInTheDocument()

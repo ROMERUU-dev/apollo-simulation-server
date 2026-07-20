@@ -51,7 +51,7 @@ class WorkerDaemon:
                 if self.executor is not None:
                     executor.output_root = output_root
                 try:
-                    executor.run(job_id)
+                    executor.run(job_id, request.parameters)
                 except WorkerError as exc:
                     executor_output = output_root / job_id
                     if executor_output.exists():
