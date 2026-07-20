@@ -5,6 +5,7 @@ import { LoadingState } from '../components/feedback/LoadingState'
 import { ErrorState } from '../components/feedback/ErrorState'
 import { EmptyState } from '../components/feedback/EmptyState'
 import { FixedJobStatusBadge } from '../features/jobs/FixedJobStatusBadge'
+import { jobTemplateLabel } from '../features/jobs/jobTemplate'
 import { useJobs } from '../hooks/useJobs'
 import { formatDateTime } from '../utils/format'
 
@@ -19,7 +20,7 @@ export default function JobsPage() {
     <div>
       <PageHeader
         title="Trabajos"
-        subtitle="Cola persistente de simulaciones RC fijas"
+        subtitle="Cola persistente de simulaciones RC autorizadas"
         actions={
           <button
             type="button"
@@ -70,6 +71,8 @@ export default function JobsPage() {
                   </td>
                   <td>Xyce</td>
                   <td>
+                    <span>{jobTemplateLabel(job.template_id)}</span>
+                    <br />
                     <code>{job.template_id}</code>
                   </td>
                   <td>{formatDateTime(job.created_at)}</td>

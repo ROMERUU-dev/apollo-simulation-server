@@ -48,13 +48,64 @@ describe('fixed RC simulation', () => {
     refreshHealth.mockReset()
   })
 
-  it('shows only the fixed read-only RC configuration', () => {
+  it('starts with the fixed read-only RC configuration', () => {
     renderPage()
-    expect(screen.getByRole('heading', { name: /prueba RC de paso bajo/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /prueba RC fija/i })).toBeInTheDocument()
     expect(screen.getByText('rc_lowpass_fixed_v1')).toBeInTheDocument()
     expect(screen.getByText('1 kΩ')).toBeInTheDocument()
     expect(screen.queryByLabelText(/netlist/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/barrido/i)).not.toBeInTheDocument()
+  })
+
+  it('switches to bounded configurable fields and shows normalized values', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(screen.getByRole('tab', { name: /RC configurable/i }))
+    expect(screen.getByRole('heading', { name: 'RC configurable' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Resistencia')).toHaveValue(1000)
+    expect(screen.getByLabelText('Unidad de Capacitancia')).toHaveValue('µF')
+    expect(screen.getByText('1.000000e-6 F')).toBeInTheDocument()
+    expect(screen.getByText('5.000000')).toBeInTheDocument()
+    expect(screen.queryByLabelText(/netlist/i)).not.toBeInTheDocument()
+  })
+
+  it('sends an exact numeric SI payload for the configurable template', async () => {
+    const user = userEvent.setup()
+    const parameterizedJob = {
+      ...job,
+      name: 'RC personalizada',
+      template_id: 'rc_lowpass_param_v1',
+      parameters: {
+        resistance_ohms: 1000,
+        capacitance_farads: 1e-6,
+        input_voltage_volts: 1,
+        duration_seconds: 0.005,
+      },
+      derived: { time_constant_seconds: 0.001 },
+    }
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify(parameterizedJob), {
+        status: 201,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    renderPage()
+    await user.click(screen.getByRole('tab', { name: /RC configurable/i }))
+    await user.click(screen.getByRole('button', { name: /ejecutar RC configurable/i }))
+    expect(await screen.findByText('Vista de trabajo')).toBeInTheDocument()
+    const payload = JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body))
+    expect(payload).toEqual({
+      name: 'RC personalizada',
+      template_id: 'rc_lowpass_param_v1',
+      parameters: {
+        resistance_ohms: 1000,
+        capacitance_farads: 1e-6,
+        input_voltage_volts: 1,
+        duration_seconds: 0.005,
+      },
+    })
+    expect(Object.values(payload.parameters).every((value) => typeof value === 'number')).toBe(true)
+    expect(JSON.stringify(payload)).not.toMatch(/"1k"|"1u"|"5ms"|µ|Ω/)
   })
 
   it('disables submission when job submission is unavailable', () => {

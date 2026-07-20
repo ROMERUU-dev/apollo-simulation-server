@@ -171,12 +171,18 @@ somewhere to go that isn't tied to one simulation.
   fully faithful per-run-per-signal dataset would be considerably heavier
   to mock convincingly and isn't needed to demonstrate the UI.
 
-## Known limitations
+## Live job flow
 
-- No backend, no real Xyce/ngspice execution — everything under
-  `src/services/mock*.ts` is synthetic.
-- No persistence beyond the browser session for projects/jobs/results
-  (only the theme preference survives a reload).
-- The job "ticker" is a simple linear progress simulation; it does not
-  model realistic run-time variance, retries, or partial failures beyond
-  the illustrative failed-run counters already in the mock data.
+Jobs and results use same-origin `/api/jobs` requests rather than the legacy
+mock services. The client supports exactly `rc_lowpass_fixed_v1` and
+`rc_lowpass_param_v1`, generates one idempotency key per explicit submission,
+polls only non-terminal jobs, validates `waveform.csv`, and renders its complete
+series with ECharts. It does not read authentication cookies or tokens and does
+not persist jobs, responses, parameters, or CSV data in browser storage.
+
+The configurable form converts visible capacitance and duration units to four
+numeric SI fields before submission and checks the same ranges and RC ratio as
+the backend. This client validation is for usability; backend and worker
+validation remain authoritative. Projects and the older generic simulation
+wizard remain non-functional placeholders and are not connected to job
+execution.

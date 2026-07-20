@@ -11,6 +11,8 @@ from importlib.resources import as_file, files
 from pathlib import Path
 from typing import Final
 
+from cimasim_worker.job_models import FIXED_TEMPLATE_ID, PARAM_TEMPLATE_ID
+from cimasim_worker.rc_parameters import RcParameters, render_parameterized_netlist
 from cimasim_worker.validation import (
     ValidationError,
     parse_xyce_prn,
@@ -61,7 +63,7 @@ class FixedRcXyceExecutor:
         self.output_root = output_root
         self.timeout_seconds = timeout_seconds
 
-    def run(self, run_id: str) -> dict[str, object]:
+    def run(self, run_id: str, parameters: RcParameters | None = None) -> dict[str, object]:
         run_id = validate_run_id(run_id)
         if not self.xyce_path.is_file():
             raise WorkerError("Xyce executable is not available")
@@ -78,9 +80,17 @@ class FixedRcXyceExecutor:
             workdir = Path(tmp)
             home = workdir / "home"
             home.mkdir(mode=0o700)
-            template = files("cimasim_worker.templates").joinpath("rc_lowpass_fixed.cir")
-            with as_file(template) as template_path:
-                (workdir / "input.cir").write_bytes(template_path.read_bytes())
+            template_id: str
+            if parameters is None:
+                template_id = FIXED_TEMPLATE_ID
+                template = files("cimasim_worker.templates").joinpath("rc_lowpass_fixed.cir")
+                with as_file(template) as template_path:
+                    (workdir / "input.cir").write_bytes(template_path.read_bytes())
+            else:
+                template_id = PARAM_TEMPLATE_ID
+                (workdir / "input.cir").write_text(
+                    render_parameterized_netlist(parameters), encoding="ascii"
+                )
 
             env = {
                 "HOME": str(home),
@@ -117,7 +127,13 @@ class FixedRcXyceExecutor:
                 except subprocess.TimeoutExpired:
                     os.killpg(process.pid, signal.SIGKILL)
                     process.communicate()
-                _write_failure_summary(run_output, "timed_out", "Xyce execution timed out")
+                _write_failure_summary(
+                    run_output,
+                    "timed_out",
+                    "Xyce execution timed out",
+                    template_id,
+                    parameters,
+                )
                 raise WorkerError("Xyce execution timed out") from exc
 
             if process.returncode != 0:
@@ -126,23 +142,34 @@ class FixedRcXyceExecutor:
                     run_output,
                     "failed",
                     f"Xyce exited with code {process.returncode}: {detail}",
+                    template_id,
+                    parameters,
                 )
                 raise WorkerError(f"Xyce exited with code {process.returncode}: {detail}")
 
             try:
                 result_path = validate_workdir(workdir)
                 columns, rows = parse_xyce_prn(result_path)
-                waveform = validate_rc_lowpass(columns, rows)
+                waveform = validate_rc_lowpass(
+                    columns,
+                    rows,
+                    expected_input_voltage=(
+                        parameters.input_voltage_volts if parameters is not None else 1.0
+                    ),
+                    time_constant_seconds=(
+                        parameters.time_constant_seconds if parameters is not None else 1e-3
+                    ),
+                )
             except ValidationError as exc:
-                _write_failure_summary(run_output, "failed", str(exc))
+                _write_failure_summary(run_output, "failed", str(exc), template_id, parameters)
                 raise WorkerError(str(exc)) from exc
 
             waveform_csv = run_output / "waveform.csv"
             write_waveform_csv(columns, rows, waveform_csv)
-            summary = {
+            summary: dict[str, object] = {
                 "status": "succeeded",
                 "simulator": "xyce",
-                "template": "rc_lowpass_fixed_v1",
+                "template": template_id,
                 "samples": waveform.samples,
                 "duration_seconds": round(waveform.duration_seconds, 9),
                 "artifacts": [
@@ -153,6 +180,9 @@ class FixedRcXyceExecutor:
                     }
                 ],
             }
+            if parameters is not None:
+                summary["parameters"] = parameters.as_dict()
+                summary["derived"] = {"time_constant_seconds": parameters.time_constant_seconds}
             (run_output / "summary.json").write_text(
                 json.dumps(summary, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
@@ -167,14 +197,23 @@ class FixedRcXyceExecutor:
         return summary
 
 
-def _write_failure_summary(run_output: Path, status: str, reason: str) -> None:
-    summary = {
+def _write_failure_summary(
+    run_output: Path,
+    status: str,
+    reason: str,
+    template_id: str = FIXED_TEMPLATE_ID,
+    parameters: RcParameters | None = None,
+) -> None:
+    summary: dict[str, object] = {
         "status": status,
         "simulator": "xyce",
-        "template": "rc_lowpass_fixed_v1",
+        "template": template_id,
         "error": reason[:MAX_CAPTURE_BYTES],
         "artifacts": [],
     }
+    if parameters is not None:
+        summary["parameters"] = parameters.as_dict()
+        summary["derived"] = {"time_constant_seconds": parameters.time_constant_seconds}
     (run_output / "summary.json").write_text(
         json.dumps(summary, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",

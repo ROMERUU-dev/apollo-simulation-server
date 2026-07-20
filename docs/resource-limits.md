@@ -6,8 +6,9 @@
 |---|---:|---|
 | Active jobs per user | 2 | API quota check and worker lease accounting |
 | Global queued jobs | 20 | API quota check before enqueue |
-| Sweep simulations per job | 100 | API validation and worker validation |
-| Wall clock time per job | 30 minutes | Worker timeout and process group termination |
+| Templates | 2 exact identifiers | API and worker validation |
+| Numeric parameters | 4 exact SI values for `rc_lowpass_param_v1` | API and worker validation |
+| Wall clock time per job | 30 seconds | Worker timeout and process group termination |
 | Validation-phase workers | 1 concurrent worker | Worker pool configuration |
 | Validation-phase CPU | 2 total CimaSim threads | Worker pool and host reservation |
 | Validation-phase RAM | 2 GB total | cgroup, systemd, or container memory limit |
@@ -18,14 +19,9 @@
 | Storage per user | 1 GB | API quota check and artifact storage accounting |
 | Global retained artifacts | 100 GB | artifact storage accounting and deployment config |
 | Retention | 30 days | Scheduled cleanup task |
-| Netlist size | 256 KB | API request validation |
-| Uploaded support files per job | 20 files | API and worker validation |
-| Single support file size | 10 MB | API upload validation |
-| Total input bytes per job | 50 MB | API and worker validation |
-| Result files per job | 100 files | Worker artifact collection |
-| Single result file size | 100 MB | Worker output monitoring |
-| Total result bytes per job | 500 MB | Worker output monitoring and artifact store |
-| Log bytes returned per request | 256 KB | API pagination |
+| User netlist/support files | 0 | Schema rejection |
+| Result files per job | 1 (`waveform.csv`) | Worker artifact collection |
+| Single result file size | 5 MiB | Worker and API validation |
 
 These defaults are intentionally conservative because the HP Z8 also runs Apollo PACS/DICOM. CimaSim must reserve explicit CPU, RAM, and disk capacity for Apollo and the operating system. New jobs must be rejected when global CimaSim capacity is exhausted, even if the requesting user is still under their personal quota.
 
@@ -72,7 +68,7 @@ Recommended controls:
 
 ## Time
 
-Each job has a maximum wall clock time of 30 minutes. The worker should terminate the entire process group on timeout and then mark the job `timed_out`.
+Each job has a maximum wall clock time of 30 seconds. The worker terminates the entire process group on timeout and then marks the job `timed_out`.
 
 Recommended controls:
 
@@ -114,30 +110,12 @@ Cleanup rules:
 
 ## Input Validation Limits
 
-Netlists and support files must be validated before queuing or execution:
-
-- reject absolute paths;
-- reject parent traversal;
-- reject symlinks;
-- reject unsupported extensions;
-- require regular files;
-- enforce filename length and character allowlist;
-- reject hidden control files;
-- reject files that resolve outside the job directory.
-
-Suggested allowed extensions for initial validation:
-
-- `.cir`
-- `.sp`
-- `.spi`
-- `.net`
-- `.lib`
-- `.mod`
-- `.model`
-- `.inc`
-- `.txt`
-
-The allowlist should be revisited before real execution.
+The fixed template accepts no parameters. The configurable template accepts
+only four finite JSON numbers: resistance 1 to 10,000,000 ohm, capacitance
+1e-12 to 1e-2 farad, input voltage 0.001 to 10 volt, and duration 1e-6 to 1
+second. The duration must remain between 0.01 and 1000 time constants. The
+backend and worker both enforce these bounds. Netlists, support files, models,
+includes, paths, expressions, and textual units are rejected.
 
 ## Apollo Protection
 

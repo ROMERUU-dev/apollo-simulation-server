@@ -1,18 +1,26 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import stat
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import pytest
 from conftest import FakeJwksFetcher, KeyMaterial, auth_headers, make_client, make_token
 from fastapi.testclient import TestClient
 
 from cimasim_api.config import Settings
-from cimasim_api.jobs.models import JobCreateRequest
+from cimasim_api.jobs.errors import IdempotencyConflictError
+from cimasim_api.jobs.models import JobCreateRequest, JobSummary, RcParameters, StoredJobRequest
 from cimasim_api.jobs.service import JobService
-from cimasim_api.jobs.store import MAX_ARTIFACT_BYTES, SPOOL_DIR_MODE, SPOOL_FILE_MODE
+from cimasim_api.jobs.store import (
+    MAX_ARTIFACT_BYTES,
+    SPOOL_DIR_MODE,
+    SPOOL_FILE_MODE,
+    _body_hash,
+)
 from cimasim_api.models import Identity
 
 
@@ -424,3 +432,244 @@ def test_head_is_authenticated_on_all_published_job_routes(
             response = client.head(path)
             assert response.status_code == 401
             assert response.headers["cache-control"] == "no-store"
+
+
+PARAMETERS = {
+    "resistance_ohms": 1000,
+    "capacitance_farads": 1e-6,
+    "input_voltage_volts": 1,
+    "duration_seconds": 0.005,
+}
+
+
+def test_parameterized_request_writes_numeric_manifest_and_metadata(
+    settings: Settings,
+    tmp_path: Path,
+    key_material: KeyMaterial,
+    fetcher: FakeJwksFetcher,
+) -> None:
+    configured = job_settings(settings, tmp_path)
+    with make_client(configured, fetcher) as client:
+        response = client.post(
+            "/api/jobs",
+            json={
+                "name": "RC personalizada",
+                "template_id": "rc_lowpass_param_v1",
+                "parameters": PARAMETERS,
+            },
+            headers=headers(key_material),
+        )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["parameters"] == PARAMETERS
+    assert body["derived"] == {"time_constant_seconds": 0.001}
+    request = json.loads(
+        (tmp_path / "spool" / "jobs" / body["job_id"] / "request.json").read_text(encoding="utf-8")
+    )
+    assert request["parameters"] == PARAMETERS
+    assert all(isinstance(value, (int, float)) for value in request["parameters"].values())
+
+
+def test_fixed_request_remains_exact_and_rejects_parameters(
+    settings: Settings,
+    tmp_path: Path,
+    key_material: KeyMaterial,
+    fetcher: FakeJwksFetcher,
+) -> None:
+    with make_client(job_settings(settings, tmp_path), fetcher) as client:
+        job_id = create_job(client, key_material)
+        explicit_parameters = client.post(
+            "/api/jobs",
+            json={
+                "name": "fixed",
+                "template_id": "rc_lowpass_fixed_v1",
+                "parameters": None,
+            },
+            headers=headers(key_material),
+        )
+    request = json.loads(
+        (tmp_path / "spool" / "jobs" / job_id / "request.json").read_text(encoding="utf-8")
+    )
+    assert "parameters" not in request
+    assert explicit_parameters.status_code == 422
+
+
+def test_parameterized_request_requires_exact_parameter_schema(
+    client: TestClient,
+    key_material: KeyMaterial,
+) -> None:
+    base = {"name": "RC", "template_id": "rc_lowpass_param_v1"}
+    cases = [
+        base,
+        {**base, "parameters": {**PARAMETERS, "extra": 1}},
+        {
+            **base,
+            "parameters": {
+                key: value for key, value in PARAMETERS.items() if key != "resistance_ohms"
+            },
+        },
+        {**base, "parameters": {**PARAMETERS, "resistance_ohms": "1k"}},
+        {**base, "parameters": {**PARAMETERS, "resistance_ohms": [1000]}},
+        {**base, "parameters": {**PARAMETERS, "resistance_ohms": {"value": 1000}}},
+        {**base, "parameters": {**PARAMETERS}, "netlist": "R1 in out 1k"},
+        {**base, "parameters": {**PARAMETERS}, "command": "Xyce"},
+    ]
+    for payload in cases:
+        assert (
+            client.post("/api/jobs", json=payload, headers=headers(key_material)).status_code == 422
+        )
+
+
+def test_parameterized_request_rejects_non_finite_numbers(
+    client: TestClient,
+    key_material: KeyMaterial,
+) -> None:
+    for token in ("NaN", "Infinity", "-Infinity"):
+        payload = json.dumps(
+            {
+                "name": "RC",
+                "template_id": "rc_lowpass_param_v1",
+                "parameters": PARAMETERS,
+            }
+        ).replace("1000", token, 1)
+        response = client.post(
+            "/api/jobs",
+            content=payload,
+            headers={**headers(key_material), "Content-Type": "application/json"},
+        )
+        assert response.status_code == 422
+
+
+def test_parameter_limits_accept_valid_boundaries() -> None:
+    valid_cases = [
+        {**PARAMETERS, "resistance_ohms": 1, "duration_seconds": 1e-6},
+        {
+            **PARAMETERS,
+            "resistance_ohms": 10_000_000,
+            "capacitance_farads": 1e-12,
+            "duration_seconds": 1e-5,
+        },
+        {
+            **PARAMETERS,
+            "capacitance_farads": 1e-12,
+            "resistance_ohms": 10_000_000,
+            "duration_seconds": 1e-5,
+        },
+        {**PARAMETERS, "capacitance_farads": 1e-2, "resistance_ohms": 1, "duration_seconds": 1e-2},
+        {**PARAMETERS, "input_voltage_volts": 0.001},
+        {**PARAMETERS, "input_voltage_volts": 10},
+        {**PARAMETERS, "duration_seconds": 1e-6, "resistance_ohms": 1},
+        {**PARAMETERS, "duration_seconds": 1, "capacitance_farads": 1e-3},
+    ]
+    for parameters in valid_cases:
+        request = JobCreateRequest(
+            name="boundary",
+            template_id="rc_lowpass_param_v1",
+            parameters=RcParameters.model_validate(parameters),
+        )
+        assert request.parameters is not None
+
+
+def test_parameter_limits_and_physical_ratio_reject_invalid_values() -> None:
+    invalid_cases = [
+        {**PARAMETERS, "resistance_ohms": 0.99},
+        {**PARAMETERS, "resistance_ohms": 10_000_001},
+        {**PARAMETERS, "capacitance_farads": 0.9e-12},
+        {**PARAMETERS, "capacitance_farads": 1.1e-2},
+        {**PARAMETERS, "input_voltage_volts": 0.0009},
+        {**PARAMETERS, "input_voltage_volts": 10.1},
+        {**PARAMETERS, "duration_seconds": 0.9e-6},
+        {**PARAMETERS, "duration_seconds": 1.1},
+        {
+            **PARAMETERS,
+            "resistance_ohms": 10_000_000,
+            "capacitance_farads": 1e-2,
+            "duration_seconds": 1e-6,
+        },
+        {**PARAMETERS, "resistance_ohms": 1, "capacitance_farads": 1e-12, "duration_seconds": 1},
+    ]
+    for parameters in invalid_cases:
+        with pytest.raises(ValueError):
+            JobCreateRequest(
+                name="invalid",
+                template_id="rc_lowpass_param_v1",
+                parameters=RcParameters.model_validate(parameters),
+            )
+
+
+def test_parameterized_idempotency_and_conflict(
+    settings: Settings,
+    tmp_path: Path,
+) -> None:
+    service = JobService(job_settings(settings, tmp_path))
+    identity = Identity(user_id="user-123", email="user@example.test")
+    first_request = JobCreateRequest(
+        name="RC",
+        template_id="rc_lowpass_param_v1",
+        parameters=RcParameters.model_validate(PARAMETERS),
+    )
+    changed_request = JobCreateRequest(
+        name="RC",
+        template_id="rc_lowpass_param_v1",
+        parameters=RcParameters.model_validate({**PARAMETERS, "input_voltage_volts": 3.3}),
+    )
+    first, first_status = service.create_job(identity, first_request, "param-key")
+    replay, replay_status = service.create_job(identity, first_request, "param-key")
+    assert first_status == 201
+    assert replay_status == 200
+    assert first.job_id == replay.job_id
+    with pytest.raises(IdempotencyConflictError):
+        service.create_job(identity, changed_request, "param-key")
+
+
+def test_historical_fixed_manifest_and_summary_remain_valid() -> None:
+    historical = {
+        "job_id": "job_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "user_id": "user-1",
+        "name": "Historical RC",
+        "template_id": "rc_lowpass_fixed_v1",
+        "simulator": "xyce",
+        "timeout_seconds": 30,
+        "idempotency_key_hash": None,
+        "body_hash": None,
+        "created_at": "2026-01-01T00:00:00+00:00",
+    }
+    stored = StoredJobRequest.model_validate(historical)
+    summary = JobSummary.model_validate(
+        {
+            "status": "succeeded",
+            "simulator": "xyce",
+            "template": "rc_lowpass_fixed_v1",
+            "samples": 2013,
+            "duration_seconds": 0.005,
+            "elapsed_seconds": 0.2,
+            "error": None,
+            "artifacts": [],
+        }
+    )
+    assert stored.parameters is None
+    assert summary.parameters is None
+    assert summary.derived is None
+
+
+def test_stored_manifest_enforces_template_parameter_pair() -> None:
+    base = {
+        "job_id": "job_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "user_id": "user-1",
+        "name": "Stored RC",
+        "simulator": "xyce",
+        "timeout_seconds": 30,
+        "created_at": "2026-01-01T00:00:00Z",
+    }
+    with pytest.raises(ValueError):
+        StoredJobRequest.model_validate({**base, "template_id": "rc_lowpass_param_v1"})
+    with pytest.raises(ValueError):
+        StoredJobRequest.model_validate(
+            {**base, "template_id": "rc_lowpass_fixed_v1", "parameters": None}
+        )
+
+
+def test_fixed_body_hash_remains_historically_stable() -> None:
+    request = JobCreateRequest(name="A", template_id="rc_lowpass_fixed_v1")
+    expected = hashlib.sha256(b'{"name":"A","template_id":"rc_lowpass_fixed_v1"}').hexdigest()
+    assert _body_hash(request) == expected

@@ -1,13 +1,14 @@
-# CimaSim Fixed-Template Job Lifecycle
+# CimaSim Bounded-Template Job Lifecycle
 
-This phase implements an internal file spool for one authorized template:
-`rc_lowpass_fixed_v1`. It does not accept user netlists, model files,
-parameters, sweeps, cancellation, deletion, Redis, PostgreSQL, or parallel
-workers.
+This phase implements a file spool for two authorized templates:
+`rc_lowpass_fixed_v1` and `rc_lowpass_param_v1`. The parameterized template
+accepts only resistance, capacitance, input voltage, and duration as bounded SI
+JSON numbers. It does not accept user netlists, model files, includes, commands,
+paths, expressions, textual units, sweeps, cancellation, deletion, Redis,
+PostgreSQL, or parallel workers.
 
 The preview Nginx configuration exposes only the exact authenticated job and
-waveform routes. The frontend does not call them yet; authenticated manual
-validation uses same-origin requests from the browser console.
+waveform routes. The frontend calls them same-origin through Cloudflare Access.
 
 ## Spool Layout
 
@@ -44,7 +45,7 @@ Terminal states are immutable: `succeeded`, `failed`, and `timed_out`.
 
 | From | To | Trigger |
 |---|---|---|
-| none | `queued` | Backend accepts a fixed-template request. |
+| none | `queued` | Backend accepts an authorized-template request. |
 | `queued` | `running` | Worker atomically claims the marker. |
 | `running` | `succeeded` | Xyce output validates successfully. |
 | `running` | `failed` | Xyce exits non-zero, output validation fails, or artifact collection fails. |

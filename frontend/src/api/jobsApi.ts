@@ -1,20 +1,26 @@
 import { ApiError } from './errors'
 import {
   FIXED_RC_TEMPLATE_ID,
+  PARAM_RC_TEMPLATE_ID,
   type ArtifactInfo,
   type ArtifactListResponse,
   type Job,
   type JobListResponse,
   type JobStatus,
   type JobSummary,
+  type JobCreateRequest,
+  type JobTemplateId,
+  type RcParameters,
   type TerminalJobStatus,
 } from './jobTypes'
+import { validateRcParameters } from './rcParameters'
 import type { ApiErrorBody } from './types'
 
 const DEFAULT_TIMEOUT_MS = 8000
 const JOB_ID_PATTERN = /^job_[0-9a-f]{32}$/
 const JOB_STATUSES: JobStatus[] = ['queued', 'running', 'succeeded', 'failed', 'timed_out']
 const TERMINAL_STATUSES: TerminalJobStatus[] = ['succeeded', 'failed', 'timed_out']
+const TEMPLATE_IDS: JobTemplateId[] = [FIXED_RC_TEMPLATE_ID, PARAM_RC_TEMPLATE_ID]
 
 export interface JobRequestOptions {
   signal?: AbortSignal
@@ -53,7 +59,7 @@ function errorForStatus(status: number, requestId: string | null): ApiError {
   }
   if (status === 422) {
     return new ApiError(
-      'La configuración fija no fue aceptada por el servidor.',
+      'La configuración RC no fue aceptada por el servidor.',
       'validation',
       status,
       requestId,
@@ -100,28 +106,65 @@ function nullableFiniteNumber(value: unknown): number | null {
   return value
 }
 
+function parseParameters(value: unknown): RcParameters | null {
+  if (value === null || value === undefined) return null
+  const keys = [
+    'resistance_ohms',
+    'capacitance_farads',
+    'input_voltage_volts',
+    'duration_seconds',
+  ] as const
+  if (!isRecord(value) || Object.keys(value).length !== keys.length) {
+    throw new ApiError('La API devolvió parámetros inválidos.', 'invalid-json')
+  }
+  const parameters = Object.fromEntries(
+    keys.map((key) => [key, value[key]]),
+  ) as unknown as RcParameters
+  if (keys.some((key) => typeof parameters[key] !== 'number') || validateRcParameters(parameters)) {
+    throw new ApiError('La API devolvió parámetros inválidos.', 'invalid-json')
+  }
+  return parameters
+}
+
+function parseDerived(value: unknown): { time_constant_seconds: number } | null {
+  if (value === null || value === undefined) return null
+  if (
+    !isRecord(value) ||
+    Object.keys(value).length !== 1 ||
+    typeof value.time_constant_seconds !== 'number' ||
+    !Number.isFinite(value.time_constant_seconds) ||
+    value.time_constant_seconds <= 0
+  ) {
+    throw new ApiError('La API devolvió métricas derivadas inválidas.', 'invalid-json')
+  }
+  return { time_constant_seconds: value.time_constant_seconds }
+}
+
 function parseSummary(value: unknown): JobSummary | null {
   if (value === null) return null
   if (
     !isRecord(value) ||
     !TERMINAL_STATUSES.includes(value.status as TerminalJobStatus) ||
     value.simulator !== 'xyce' ||
-    value.template !== FIXED_RC_TEMPLATE_ID ||
+    !TEMPLATE_IDS.includes(value.template as JobTemplateId) ||
     (value.error !== null && typeof value.error !== 'string') ||
     !Array.isArray(value.artifacts)
   ) {
     throw new ApiError('La API devolvió un resumen inválido.', 'invalid-json')
   }
-  return {
+  const summary: JobSummary = {
     status: value.status as TerminalJobStatus,
     simulator: 'xyce',
-    template: FIXED_RC_TEMPLATE_ID,
+    template: value.template as JobTemplateId,
     samples: nullableFiniteNumber(value.samples),
     duration_seconds: nullableFiniteNumber(value.duration_seconds),
     elapsed_seconds: nullableFiniteNumber(value.elapsed_seconds),
     error: value.error as string | null,
     artifacts: value.artifacts.map(parseArtifact),
   }
+  if ('parameters' in value) summary.parameters = parseParameters(value.parameters)
+  if ('derived' in value) summary.derived = parseDerived(value.derived)
+  return summary
 }
 
 export function parseJob(value: unknown): Job {
@@ -130,7 +173,7 @@ export function parseJob(value: unknown): Job {
     typeof value.job_id !== 'string' ||
     !JOB_ID_PATTERN.test(value.job_id) ||
     typeof value.name !== 'string' ||
-    value.template_id !== FIXED_RC_TEMPLATE_ID ||
+    !TEMPLATE_IDS.includes(value.template_id as JobTemplateId) ||
     value.simulator !== 'xyce' ||
     !JOB_STATUSES.includes(value.status as JobStatus) ||
     typeof value.created_at !== 'string' ||
@@ -138,16 +181,19 @@ export function parseJob(value: unknown): Job {
   ) {
     throw new ApiError('La API devolvió datos de trabajo inválidos.', 'invalid-json')
   }
-  return {
+  const job: Job = {
     job_id: value.job_id,
     name: value.name,
-    template_id: FIXED_RC_TEMPLATE_ID,
+    template_id: value.template_id as JobTemplateId,
     simulator: 'xyce',
     status: value.status as JobStatus,
     created_at: value.created_at,
     updated_at: value.updated_at,
     summary: parseSummary(value.summary),
   }
+  if ('parameters' in value) job.parameters = parseParameters(value.parameters)
+  if ('derived' in value) job.derived = parseDerived(value.derived)
+  return job
 }
 
 async function requestJson(
@@ -210,6 +256,14 @@ export async function createFixedRcJob(
   idempotencyKey: string,
   options: JobRequestOptions = {},
 ): Promise<{ job: Job; recovered: boolean }> {
+  return createRcJob({ name, template_id: FIXED_RC_TEMPLATE_ID }, idempotencyKey, options)
+}
+
+export async function createRcJob(
+  request: JobCreateRequest,
+  idempotencyKey: string,
+  options: JobRequestOptions = {},
+): Promise<{ job: Job; recovered: boolean }> {
   const { body, status } = await requestJson(
     '/api/jobs',
     {
@@ -219,7 +273,7 @@ export async function createFixedRcJob(
         'Content-Type': 'application/json',
         'Idempotency-Key': idempotencyKey,
       },
-      body: JSON.stringify({ name, template_id: FIXED_RC_TEMPLATE_ID }),
+      body: JSON.stringify(request),
     },
     options,
   )

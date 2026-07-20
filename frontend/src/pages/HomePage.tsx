@@ -33,7 +33,7 @@ export default function HomePage() {
 
   return (
     <div>
-      <PageHeader title="Inicio" subtitle="Backend conectado · Ejecución RC fija disponible" />
+      <PageHeader title="Inicio" subtitle="Backend conectado · Plantillas RC disponibles" />
       {sessionLoading ? (
         <LoadingState label="Cargando sesión…" />
       ) : (
@@ -52,7 +52,7 @@ export default function HomePage() {
           </div>
           <div className="fixed-job-stat">
             <span>Ejecución</span>
-            <strong>Xyce · plantilla RC fija</strong>
+            <strong>Xyce · plantillas RC acotadas</strong>
           </div>
           <div className="fixed-job-stat">
             <span>Trabajos activos</span>
@@ -65,7 +65,9 @@ export default function HomePage() {
         </div>
       )}
 
-      <p className="fixed-job-boundary">Por ahora solo está disponible la prueba RC fija.</p>
+      <p className="fixed-job-boundary">
+        Solo están disponibles la prueba RC fija y la plantilla RC configurable acotada.
+      </p>
 
       <div
         style={{
@@ -117,7 +119,7 @@ export default function HomePage() {
             >
               <div style={{ flex: 1 }}>
                 <Link to={`/jobs/${job.job_id}`}>{job.name}</Link>
-                <div style={{ fontSize: 12, opacity: 0.6 }}>Xyce · RC fija</div>
+                <div style={{ fontSize: 12, opacity: 0.6 }}>Xyce · {job.template_id}</div>
               </div>
               <FixedJobStatusBadge status={job.status} />
             </li>

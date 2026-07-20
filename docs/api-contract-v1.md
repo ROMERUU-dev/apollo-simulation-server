@@ -6,11 +6,10 @@ Authenticated API routes are rooted at `/api` and return JSON unless an artifact
 
 The backend must validate Cloudflare Access JWTs from `Cf-Access-Jwt-Assertion` and derive identity from validated claims. The frontend and API should be served from the same origin for v1. Mutable v1 endpoints accept only `application/json`.
 
-The current internal phase executes only the fixed `rc_lowpass_fixed_v1` template.
-It does not accept arbitrary netlists, model files, parameters, sweeps, simulator
-selection, paths, commands, or environment variables from users. These routes are
-implemented in the backend but are not exposed through the preview Nginx config
-yet, and the frontend does not call them yet.
+The jobs API accepts exactly two packaged templates: `rc_lowpass_fixed_v1` and
+`rc_lowpass_param_v1`. The latter accepts four bounded JSON numbers in SI units.
+Neither template accepts netlists, model files, includes, sweeps, simulator
+selection, paths, commands, environment variables, textual units, or expressions.
 
 ## Identity Schema
 
@@ -66,7 +65,7 @@ HTTP security rules:
     "message": "The request body is invalid.",
     "details": [
       {
-        "field": "netlist.content",
+        "field": "parameters.duration_seconds",
         "reason": "exceeds_limit"
       }
     ],
@@ -108,7 +107,7 @@ Response shape:
 
 ## Size Limits
 
-Initial limits for the current fixed-template phase:
+Initial limits for the bounded-template phase:
 
 - JSON request body: 1 MB.
 - Job name: 120 characters.
@@ -241,9 +240,8 @@ Errors:
 
 ## POST /api/jobs
 
-Creates a job request after identity, schema, quota, idempotency, and global
-capacity checks. The backend always selects Xyce and the fixed
-`rc_lowpass_fixed_v1` template.
+Creates a job request after identity, schema, physical-boundary, quota,
+idempotency, and global capacity checks. The backend always selects Xyce.
 
 Headers:
 
@@ -260,9 +258,39 @@ Request:
 ```
 
 `name` is normalized, limited to 120 characters, and must not contain control
-characters. `template_id` must be exactly `rc_lowpass_fixed_v1`. Extra fields are
-rejected, including `netlist`, `content`, `filename`, `parameters`, `sweep`,
-`simulator`, `paths`, `environment`, and `command`.
+characters. For `rc_lowpass_fixed_v1`, `parameters` must be absent, preserving
+the original request and stored-job format.
+
+The second accepted request shape is:
+
+```json
+{
+  "name": "RC personalizada",
+  "template_id": "rc_lowpass_param_v1",
+  "parameters": {
+    "resistance_ohms": 1000,
+    "capacitance_farads": 0.000001,
+    "input_voltage_volts": 1,
+    "duration_seconds": 0.005
+  }
+}
+```
+
+`parameters` is required only for `rc_lowpass_param_v1`, has no extra fields,
+and accepts JSON numbers only. Strings such as `"1k"`, `"1u"`, and `"5ms"`,
+non-finite numbers, arrays, and nested values are rejected. Limits are inclusive:
+
+| Parameter | Minimum | Maximum | Unit |
+|---|---:|---:|---|
+| `resistance_ohms` | 1 | 10,000,000 | ohm |
+| `capacitance_farads` | 1e-12 | 1e-2 | farad |
+| `input_voltage_volts` | 0.001 | 10 | volt |
+| `duration_seconds` | 1e-6 | 1 | second |
+
+With `tau = resistance_ohms * capacitance_farads`, the backend also requires
+`0.01 <= duration_seconds / tau <= 1000`. Extra fields are rejected, including
+`netlist`, `content`, `filename`, `sweep`, `simulator`, `paths`, `environment`,
+`command`, `model`, and `include`.
 
 Response `201 Created`:
 
@@ -278,6 +306,11 @@ Response `201 Created`:
   "summary": null
 }
 ```
+
+Parameterized responses additionally include normalized, read-only
+`parameters` and `derived.time_constant_seconds`. Those fields are optional so
+historical fixed-job responses remain unchanged. Generated netlist text and
+internal execution details are never returned.
 
 Errors:
 
@@ -356,7 +389,7 @@ Errors:
 ## GET /api/jobs/{job_id}/artifacts
 
 Lists artifacts for a visible job. The current phase exposes only
-`waveform.csv` after a successful fixed-template run.
+`waveform.csv` after a successful authorized-template run.
 
 Response `200 OK`:
 
@@ -379,7 +412,7 @@ Errors:
 
 ## GET /api/jobs/{job_id}/artifacts/waveform.csv
 
-Downloads the single visible CSV artifact for a successful fixed-template job.
+Downloads the single visible CSV artifact for a successful authorized-template job.
 
 Response `200 OK`:
 
@@ -407,11 +440,11 @@ Errors:
 - `404 Not Found`.
 - `503 Service Unavailable`.
 
-## Future API
+## Unsupported API
 
-Arbitrary netlists, parameters, sweeps, cancellation, deletion, logs, Redis,
-PostgreSQL, multiworker execution, and frontend integration are future phases.
-They are not part of the current backend contract.
+Arbitrary netlists, free-form parameters, textual units, models, includes,
+sweeps, cancellation, deletion, logs, Redis, PostgreSQL, and multiworker
+execution are not part of the current backend contract.
 
 Errors:
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../api/errors'
-import { createFixedRcJob, getJob, listJobArtifacts, listJobs } from '../api/jobsApi'
+import { createFixedRcJob, createRcJob, getJob, listJobArtifacts, listJobs } from '../api/jobsApi'
 
 const JOB_ID = `job_${'1'.repeat(32)}`
 const queuedJob = {
@@ -41,6 +41,30 @@ describe('jobs API client', () => {
     const newer = { ...queuedJob, job_id: `job_${'2'.repeat(32)}`, name: 'Segundo' }
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ jobs: [newer, queuedJob] }))
     expect((await listJobs()).map((job) => job.name)).toEqual(['Segundo', 'Prueba RC'])
+  })
+
+  it('creates and parses the bounded parameterized template', async () => {
+    const parameters = {
+      resistance_ohms: 1000,
+      capacitance_farads: 1e-6,
+      input_voltage_volts: 1,
+      duration_seconds: 0.005,
+    }
+    const responseJob = {
+      ...queuedJob,
+      template_id: 'rc_lowpass_param_v1',
+      parameters,
+      derived: { time_constant_seconds: 0.001 },
+    }
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(responseJob, 201))
+    const result = await createRcJob(
+      { name: 'RC', template_id: 'rc_lowpass_param_v1', parameters },
+      'param-key',
+    )
+    expect(result.job.parameters).toEqual(parameters)
+    const payload = JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body))
+    expect(payload.parameters).toEqual(parameters)
+    expect(Object.values(payload.parameters).every((value) => typeof value === 'number')).toBe(true)
   })
 
   it('gets a job and its artifacts through relative URLs', async () => {

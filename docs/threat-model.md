@@ -8,7 +8,7 @@ Primary assets:
 
 - Cloudflare Access identity assertions;
 - CimaSim user and job metadata;
-- uploaded netlists and model files;
+- bounded numeric RC parameters and internally generated netlists;
 - generated logs and artifacts;
 - worker host CPU, RAM, disk, and process table;
 - Xyce and ngspice executables on the host;
@@ -19,7 +19,8 @@ Primary assets:
 | Threat | Impact | Mitigations |
 |---|---|---|
 | Authenticated malicious users | Abuse of legitimate access to consume resources, access other users' jobs, or probe backend behavior. | Validate Cloudflare Access JWTs server-side, enforce per-user authorization on every resource, rate limit, audit actions, and apply per-user quotas. |
-| Manipulated netlists | Attempted simulator escape, parser abuse, unexpected includes, or hidden references to host files. | Phase 1 does not execute arbitrary netlists. Validate size, encoding, extensions, line count, include syntax, and referenced paths. Reject absolute paths, parent traversal, unsupported directives, and unknown file references. |
+| Manipulated netlists | Attempted simulator escape, parser abuse, unexpected includes, or hidden references to host files. | Never accept user netlist text. Select one of two exact packaged templates and generate the configurable netlist only from independently validated numbers. |
+| Numeric parameter abuse | Non-finite, ambiguous, extreme, or physically useless values consume resources or alter generated syntax. | Require JSON numbers, bounded representation and ranges, validate `tau` and duration/tau in backend and worker, and format with a strict scientific-notation function. |
 | Excessive CPU consumption | Worker starvation and impact to Apollo or host services. | Validation phase is capped at 1 worker and 2 total CimaSim threads. Pilot real simulation is capped at 2 workers and 8 to 16 total threads only after load testing and Apollo verification. |
 | Excessive RAM consumption | Host memory pressure affecting Apollo or system stability. | Validation phase is capped at 2 GB total worker RAM. Pilot real simulation is capped at 8 GB per worker and 16 GB total. Monitor RSS and terminate jobs exceeding limits. |
 | Excessive disk consumption | Filling host disk, breaking CimaSim, Apollo, or OS services. | Enforce 1 GB per user, per-job artifact limits, maximum output file size, 30-day retention, disk watermarks, and cleanup jobs. |
@@ -56,7 +57,8 @@ Primary assets:
 - Use a separate temporary directory per job.
 - Use dedicated UID/GID values for workers.
 - Enforce CPU, memory, time, process, and file limits.
-- Validate extensions, paths, and content size.
+- Reject user netlists, models, includes, paths, expressions, and textual units.
+- Validate bounded RC numbers independently in the frontend, backend, and worker.
 - Block symbolic links.
 - Delete temporary jobs through controlled cleanup.
 - Verify `Cf-Access-Jwt-Assertion` in the backend.
