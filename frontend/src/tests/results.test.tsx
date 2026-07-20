@@ -8,22 +8,21 @@ function renderResult(id: string) {
     <MemoryRouter initialEntries={[`/results/${id}`]}>
       <Routes>
         <Route path="/results/:simulationId" element={<ResultDetailPage />} />
+        <Route path="/jobs/:jobId" element={<div>Detalle del trabajo</div>} />
       </Routes>
     </MemoryRouter>,
   )
 }
 
 describe('ResultDetailPage', () => {
-  it('shows an empty result state without mock data', async () => {
+  it('redirects legacy result links to the real job detail', async () => {
     renderResult('result-cmos-amp')
-
-    expect(await screen.findByText(/resultado no encontrado/i)).toBeInTheDocument()
-    expect(screen.queryByText(/Respuesta en frecuencia/i)).not.toBeInTheDocument()
-    expect(screen.queryByText(/cmos_two_stage/i)).not.toBeInTheDocument()
+    expect(await screen.findByText(/detalle del trabajo/i)).toBeInTheDocument()
   })
 
-  it('shows an error state for an unknown result id', async () => {
+  it('does not render a separate fake result entity', async () => {
     renderResult('does-not-exist')
-    expect(await screen.findByText(/resultado no encontrado/i)).toBeInTheDocument()
+    expect(await screen.findByText(/detalle del trabajo/i)).toBeInTheDocument()
+    expect(screen.queryByText(/respuesta en frecuencia/i)).not.toBeInTheDocument()
   })
 })

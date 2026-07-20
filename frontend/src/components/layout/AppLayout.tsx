@@ -6,10 +6,8 @@ import {
   FolderKanban,
   Home,
   LineChart,
-  Layers,
   PanelLeftClose,
   PanelLeftOpen,
-  ServerCog,
   Settings,
 } from 'lucide-react'
 import { useJobs } from '../../hooks/useJobs'
@@ -40,8 +38,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
     { to: '/simulations/new', label: 'Nueva simulación', icon: CirclePlus },
     { to: '/jobs', label: 'Trabajos', icon: ClipboardList, badge: activeJobsCount },
     { to: '/results', label: 'Resultados', icon: LineChart },
-    { to: '/models', label: 'Modelos y librerías', icon: Layers },
-    { to: '/resources', label: 'Recursos del servidor', icon: ServerCog },
     { to: '/settings', label: 'Configuración', icon: Settings },
   ]
 
@@ -66,9 +62,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
           {!collapsed && (
             <div className={styles.brandText}>
               CimaSim
-              <span className={styles.brandSubtitle}>
-                Backend conectado · Ejecución próximamente
-              </span>
+              <span className={styles.brandSubtitle}>Xyce · prueba RC fija</span>
             </div>
           )}
         </div>

@@ -16,10 +16,8 @@ describe('primary navigation', () => {
     await user.click(screen.getByRole('link', { name: /Trabajos/i }))
     expect(await screen.findByRole('heading', { name: 'Trabajos', level: 1 })).toBeInTheDocument()
 
-    await user.click(screen.getByRole('link', { name: /Recursos del servidor/i }))
-    expect(
-      await screen.findByRole('heading', { name: 'Recursos del servidor', level: 1 }),
-    ).toBeInTheDocument()
+    await user.click(screen.getByRole('link', { name: /Resultados/i }))
+    expect(await screen.findByRole('heading', { name: 'Resultados', level: 1 })).toBeInTheDocument()
   })
 
   it('shows a not-found page for unknown routes', async () => {

@@ -5,11 +5,14 @@ import type { ReactElement } from 'react'
 import { SessionProvider } from '../session/SessionContext'
 import SettingsPage from '../pages/SettingsPage'
 import HomePage from '../pages/HomePage'
+import { JobsProvider } from '../hooks/JobsProvider'
 
 function renderWithSession(element: ReactElement) {
   render(
     <MemoryRouter>
-      <SessionProvider>{element}</SessionProvider>
+      <SessionProvider>
+        <JobsProvider>{element}</JobsProvider>
+      </SessionProvider>
     </MemoryRouter>,
   )
 }
@@ -58,10 +61,10 @@ describe('live session UI', () => {
 
   it('shows real API state and no mock telemetry on dashboard', async () => {
     renderWithSession(<HomePage />)
-    expect(await screen.findByText('Conectada')).toBeInTheDocument()
-    expect(screen.getByText(/proyectos reales: 0/i)).toBeInTheDocument()
-    expect(screen.getByText(/trabajos reales: 0/i)).toBeInTheDocument()
-    expect(screen.getByText(/resultados reales: 0/i)).toBeInTheDocument()
+    expect(await screen.findByText('Conectado')).toBeInTheDocument()
+    expect(screen.getByText('Trabajos activos').nextElementSibling).toHaveTextContent('0')
+    expect(screen.getByText('Simulaciones completadas').nextElementSibling).toHaveTextContent('0')
+    expect(screen.getByText(/solo está disponible la prueba RC fija/i)).toBeInTheDocument()
     expect(screen.queryByText(/HP Z8/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/CPU/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/apollo-hpz8/i)).not.toBeInTheDocument()
