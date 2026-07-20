@@ -130,4 +130,4 @@ def test_metrics_omit_high_cardinality_identity(client: object) -> None:
     assert "user_id" not in payload
     assert re.search(r"job_[0-9a-f]{32}", payload) is None
     assert "email" not in payload
-    assert "netlist" not in payload
+    assert "PULSE(" not in payload

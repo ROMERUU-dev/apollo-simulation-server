@@ -74,7 +74,11 @@ def test_api_health_returns_limited_authenticated_status(client, key_material) -
     assert response.json() == {
         "status": "ok",
         "service": "cimasim",
-        "features": {"identity": "available", "job_submission": "not_available"},
+        "features": {
+            "identity": "available",
+            "job_submission": "not_available",
+            "custom_netlists": "not_available",
+        },
     }
     serialized = response.text.lower()
     assert "cimasim.cloudflareaccess.com" not in serialized
@@ -169,6 +173,7 @@ def test_api_health_degrades_when_enabled_spool_is_unavailable(
         "features": {
             "identity": "available",
             "job_submission": "temporarily_unavailable",
+            "custom_netlists": "not_available",
         },
     }
     assert str(spool) not in response.text

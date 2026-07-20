@@ -6,10 +6,12 @@ Authenticated API routes are rooted at `/api` and return JSON unless an artifact
 
 The backend must validate Cloudflare Access JWTs from `Cf-Access-Jwt-Assertion` and derive identity from validated claims. The frontend and API should be served from the same origin for v1. Mutable v1 endpoints accept only `application/json`.
 
-The jobs API accepts exactly two packaged templates: `rc_lowpass_fixed_v1` and
-`rc_lowpass_param_v1`. The latter accepts four bounded JSON numbers in SI units.
-Neither template accepts netlists, model files, includes, sweeps, simulator
-selection, paths, commands, environment variables, textual units, or expressions.
+The production jobs API continues to read the two historical RC templates.
+Custom submission is a disabled review feature identified by
+`custom_xyce_netlist_v1`. It accepts one bounded, normalized Xyce 7.10 netlist
+only when `CIMASIM_CUSTOM_NETLISTS_ENABLED=true` after the rootless runner gate.
+It never accepts support files, includes, external models, paths, plugins,
+commands, environment variables, or user-selected output files.
 
 ## Identity Schema
 
@@ -243,6 +245,11 @@ Errors:
 Creates a job request after identity, schema, physical-boundary, quota,
 idempotency, and global capacity checks. The backend always selects Xyce.
 
+When `CIMASIM_ALLOW_LEGACY_RC_SUBMISSION=false`, the two RC request shapes below
+are historical read contracts only. New submissions receive `410 Gone` with
+`LEGACY_TEMPLATE_DISABLED`; existing list, detail, waveform, and summary reads
+remain unchanged.
+
 Headers:
 
 - `Content-Type: application/json`.
@@ -320,6 +327,32 @@ Errors:
 - `429 Too Many Requests`: active user quota, queue limit, or global capacity exceeded.
 - `503 Service Unavailable`: queue unavailable.
 
+### Custom Xyce request (disabled by default)
+
+```json
+{
+  "name": "Custom transient",
+  "template_id": "custom_xyce_netlist_v1",
+  "netlist": "V1 in 0 1\nR1 in out 1k\n.TRAN 1u 1m\n.END\n",
+  "requested_outputs": ["V(out)"]
+}
+```
+
+The schema has no additional fields. The netlist is UTF-8, at most 64 KiB,
+2,000 lines, and 512 characters per line. It permits exactly one `.TRAN`, `.DC`,
+or `.AC` analysis and the bounded syntax in
+`docs/custom-netlist-supported-syntax.md`. The backend normalizes one controlled
+`.PRINT`; the isolated runner selects Xyce, timeout, paths, and output format.
+
+`POST /api/jobs/preflight` accepts the same authenticated custom body and
+returns only analysis, bounded topology counts, requested outputs, and whether
+the administrative sandbox gate is ready. It does not run Xyce and does not
+accept PromQL, commands, paths, or files.
+
+Custom limits are one active job per user, ten submissions per user per hour,
+one global execution, 60 seconds, 64 KiB input, and 10 MiB result output. A
+disabled custom feature returns `503` with `CUSTOM_NETLISTS_DISABLED`.
+
 ## GET /api/jobs
 
 Lists up to 100 jobs owned by the authenticated user, ordered by `created_at`
@@ -388,8 +421,8 @@ Errors:
 
 ## GET /api/jobs/{job_id}/artifacts
 
-Lists artifacts for a visible job. The current phase exposes only
-`waveform.csv` after a successful authorized-template run.
+Lists artifacts for a visible job. Legacy jobs expose `waveform.csv`; successful
+custom jobs expose `results.csv`.
 
 Response `200 OK`:
 
@@ -440,11 +473,20 @@ Errors:
 - `404 Not Found`.
 - `503 Service Unavailable`.
 
+## GET /api/jobs/{job_id}/artifacts/results.csv
+
+Downloads the generic CSV for a successful custom job. It uses the same
+ownership, symlink, regular-file, `nosniff`, no-store, and safe disposition
+controls as `waveform.csv`, with a 10 MiB limit. It contains at most 100,000 rows
+and 128 unique numeric columns. TRAN, DC, and AC use explicit axis columns; AC
+complex values use Xyce's separate `Re(...)` and `Im(...)` columns.
+
 ## Unsupported API
 
-Arbitrary netlists, free-form parameters, textual units, models, includes,
-sweeps, cancellation, deletion, logs, Redis, PostgreSQL, and multiworker
-execution are not part of the current backend contract.
+Arbitrary files, free-form runner commands, external models, includes, plugins,
+user-selected paths, control blocks, cancellation, deletion, logs, Redis,
+PostgreSQL, and multiworker execution are not part of this contract. Custom
+netlists remain unavailable in production until the rootless isolation gate.
 
 Errors:
 

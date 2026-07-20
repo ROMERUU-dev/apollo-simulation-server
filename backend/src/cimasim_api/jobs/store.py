@@ -34,6 +34,7 @@ from cimasim_api.jobs.models import (
 JOB_ID_PREFIX: Final = "job_"
 MAX_JSON_BYTES: Final = 64 * 1024
 MAX_ARTIFACT_BYTES: Final = 5 * 1024 * 1024
+MAX_CUSTOM_ARTIFACT_BYTES: Final = 10 * 1024 * 1024
 SPOOL_DIRS: Final = ("queued", "claimed", "jobs", "failed")
 SPOOL_DIR_MODE: Final = 0o2770
 SPOOL_FILE_MODE: Final = 0o660
@@ -102,6 +103,10 @@ class JobStore:
         }
         if request.parameters is not None:
             stored_data["parameters"] = request.parameters
+        if request.netlist is not None:
+            stored_data["netlist"] = request.netlist
+        if request.requested_outputs is not None:
+            stored_data["requested_outputs"] = request.requested_outputs
         stored = StoredJobRequest.model_validate(stored_data)
         status = JobStatus(
             job_id=job_id,
@@ -113,6 +118,10 @@ class JobStore:
         stored_data = stored.model_dump(mode="json")
         if stored.parameters is None:
             stored_data.pop("parameters")
+        if stored.netlist is None:
+            stored_data.pop("netlist")
+        if stored.requested_outputs is None:
+            stored_data.pop("requested_outputs")
         _atomic_write_json(job_dir / "request.json", stored_data)
         _atomic_write_json(job_dir / "status.json", status.model_dump(mode="json"))
         _atomic_write_json(self.root / "queued" / f"{job_id}.json", {"job_id": job_id})
@@ -185,7 +194,7 @@ class JobStore:
         return total
 
     def artifact_path(self, user_id: str, job_id: str, filename: str) -> Path:
-        if filename != "waveform.csv":
+        if filename not in {"waveform.csv", "results.csv"}:
             raise ArtifactNotFoundError
         response = self.get_job(user_id, job_id)
         if response.status != "succeeded":
@@ -193,7 +202,8 @@ class JobStore:
         path = _safe_job_dir(self.root, job_id) / "artifacts" / filename
         try:
             _require_regular_file(path)
-            if path.stat(follow_symlinks=False).st_size > MAX_ARTIFACT_BYTES:
+            limit = MAX_CUSTOM_ARTIFACT_BYTES if filename == "results.csv" else MAX_ARTIFACT_BYTES
+            if path.stat(follow_symlinks=False).st_size > limit:
                 raise ArtifactNotFoundError
         except OSError as exc:
             raise ArtifactNotFoundError from exc
@@ -240,6 +250,10 @@ def _body_hash(request: JobCreateRequest) -> str:
     payload: dict[str, Any] = {"name": request.name, "template_id": request.template_id}
     if request.parameters is not None:
         payload["parameters"] = request.parameters.model_dump(mode="json")
+    if request.netlist is not None:
+        payload["netlist"] = request.netlist
+    if request.requested_outputs is not None:
+        payload["requested_outputs"] = request.requested_outputs
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
     return hashlib.sha256(raw).hexdigest()
 
