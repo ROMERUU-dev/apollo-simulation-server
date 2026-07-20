@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_URL="http://127.0.0.1:8088"
+BASE_URL="${BASE_URL:-http://127.0.0.1:8088}"
 
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
@@ -9,24 +9,36 @@ trap 'rm -rf "$tmp_dir"' EXIT
 request() {
   local method="$1"
   local path="$2"
+  local data="${3:-}"
   local body_file="$tmp_dir/body"
   local headers_file="$tmp_dir/headers"
+  local -a request_args=(
+    -sS
+    --path-as-is
+    -o "$body_file"
+    -D "$headers_file"
+    -w '%{http_code}'
+  )
 
-  curl -sS \
-    -X "$method" \
-    -o "$body_file" \
-    -D "$headers_file" \
-    -w '%{http_code}' \
-    "${BASE_URL}${path}"
+  if [[ "$method" == "HEAD" ]]; then
+    request_args+=(--head)
+  else
+    request_args+=(-X "$method")
+  fi
+  if [[ -n "$data" ]]; then
+    request_args+=(-H "Content-Type: application/json" --data "$data")
+  fi
+  curl "${request_args[@]}" "${BASE_URL}${path}"
 }
 
 expect_status() {
   local method="$1"
   local path="$2"
   local expected="$3"
+  local data="${4:-}"
   local actual
 
-  actual="$(request "$method" "$path")"
+  actual="$(request "$method" "$path" "$data")"
   if [[ "$actual" != "$expected" ]]; then
     printf 'FAIL %s %s expected %s got %s\n' "$method" "$path" "$expected" "$actual" >&2
     exit 1
@@ -61,6 +73,24 @@ expect_cache_no_store
 expect_status GET /api/me 401
 expect_body_contains '"error"'
 expect_cache_no_store
+
+valid_job_id="job_00000000000000000000000000000000"
+valid_body='{"name":"Proxy smoke","template_id":"rc_lowpass_fixed_v1"}'
+expect_status GET /api/jobs 401
+expect_status HEAD /api/jobs 401
+expect_status POST /api/jobs 401 "$valid_body"
+expect_status GET "/api/jobs/${valid_job_id}" 401
+expect_status HEAD "/api/jobs/${valid_job_id}" 401
+expect_status GET "/api/jobs/${valid_job_id}/artifacts" 401
+expect_status HEAD "/api/jobs/${valid_job_id}/artifacts" 401
+expect_status GET "/api/jobs/${valid_job_id}/artifacts/waveform.csv" 401
+expect_status HEAD "/api/jobs/${valid_job_id}/artifacts/waveform.csv" 401
+expect_status GET /api/jobs/foo 404
+expect_status GET /api/jobs/job_../artifacts 404
+expect_status GET /api/jobs/job_000000000000000000000000000000000 404
+expect_status DELETE /api/jobs 405
+expect_status PUT "/api/jobs/${valid_job_id}" 405
+expect_status PATCH "/api/jobs/${valid_job_id}/artifacts" 405
 
 expect_status GET /api/unknown 404
 expect_status GET /healthz 404

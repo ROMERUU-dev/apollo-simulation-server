@@ -6,6 +6,7 @@ import json
 import os
 import secrets
 import stat
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -36,6 +37,7 @@ SPOOL_DIRS: Final = ("queued", "claimed", "jobs", "failed")
 SPOOL_DIR_MODE: Final = 0o2770
 SPOOL_FILE_MODE: Final = 0o660
 SPOOL_LOCK_NAME: Final = ".jobs.lock"
+_INITIALIZATION_LOCK: Final = threading.Lock()
 
 
 class JobStore:
@@ -46,15 +48,16 @@ class JobStore:
     def ensure_available(self) -> None:
         if not self.settings.jobs_enabled:
             raise JobSpoolUnavailableError
-        if self.root.exists() and self.root.is_symlink():
-            raise JobSpoolUnavailableError
-        try:
-            _mkdir_spool_dir(self.root)
-            for name in SPOOL_DIRS:
-                _mkdir_spool_dir(self.root / name)
-            _ensure_lock_file(self.root / SPOOL_LOCK_NAME)
-        except OSError as exc:
-            raise JobSpoolUnavailableError from exc
+        with _INITIALIZATION_LOCK:
+            if self.root.exists() and self.root.is_symlink():
+                raise JobSpoolUnavailableError
+            try:
+                _mkdir_spool_dir(self.root)
+                for name in SPOOL_DIRS:
+                    _mkdir_spool_dir(self.root / name)
+                _ensure_lock_file(self.root / SPOOL_LOCK_NAME)
+            except OSError as exc:
+                raise JobSpoolUnavailableError from exc
 
     @contextmanager
     def exclusive_lock(self) -> Iterator[None]:

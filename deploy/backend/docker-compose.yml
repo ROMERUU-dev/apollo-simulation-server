@@ -9,6 +9,12 @@ services:
       - ${CIMASIM_BACKEND_ENV_FILE:-/home/romeruu/.config/cimasim/backend.env}
     environment:
       CIMASIM_ALLOWED_EMAIL_DOMAINS: '["uabc.edu.mx"]'
+      CIMASIM_JOBS_ENABLED: "true"
+      CIMASIM_JOB_SPOOL_ROOT: /spool
+      CIMASIM_JOB_TIMEOUT_SECONDS: "30"
+      CIMASIM_JOB_ACTIVE_PER_USER_LIMIT: "2"
+      CIMASIM_JOB_ACTIVE_GLOBAL_LIMIT: "20"
+      CIMASIM_JOB_LIST_LIMIT: "100"
     ports:
       - "127.0.0.1:8089:8080"
     networks:
@@ -17,6 +23,10 @@ services:
         aliases:
           - cimasim-api
     user: "10001:10001"
+    group_add:
+      - "10003"
+    volumes:
+      - cimasim-job-spool:/spool
     read_only: true
     tmpfs:
       - /tmp:size=64m,noexec,nosuid,nodev
@@ -24,6 +34,7 @@ services:
     pids_limit: 128
     cpus: 2.0
     mem_limit: 2g
+    memswap_limit: 2g
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -40,7 +51,7 @@ services:
           "CMD",
           "python",
           "-c",
-          "import sys, urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2); sys.exit(0 if r.status == 200 else 1)",
+          "import sys, urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8080/readyz', timeout=2); sys.exit(0 if r.status == 200 else 1)",
         ]
       interval: 30s
       timeout: 5s
@@ -54,3 +65,8 @@ networks:
   cimasim-edge-net:
     external: true
     name: cimasim-edge-net
+
+volumes:
+  cimasim-job-spool:
+    external: true
+    name: cimasim-job-spool

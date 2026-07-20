@@ -5,8 +5,9 @@ This phase implements an internal file spool for one authorized template:
 parameters, sweeps, cancellation, deletion, Redis, PostgreSQL, or parallel
 workers.
 
-The backend endpoints exist under `/api/jobs`, but they are not exposed through
-the preview Nginx configuration yet and the frontend does not call them yet.
+The preview Nginx configuration exposes only the exact authenticated job and
+waveform routes. The frontend does not call them yet; authenticated manual
+validation uses same-origin requests from the browser console.
 
 ## Spool Layout
 
@@ -64,8 +65,9 @@ larger than 5 MiB, and owned through the job's validated `user_id`. API response
 use `Cache-Control: no-store` and never expose internal paths, hostnames, stdout,
 environment variables, or netlist content.
 
-## Next Phase
+## Current deployment boundary
 
-Future work can add an authenticated public route, deployment wiring, queue
-metrics, cancellation, retention, Redis/PostgreSQL, and multiworker scheduling.
-Those features are deliberately absent here.
+Backend UID `10001` and worker UID `10002` share only the named CimaSim spool
+through supplemental GID `10003`. The single worker has no network or ports.
+Cancellation, retention automation, Redis/PostgreSQL, arbitrary inputs, and
+multiworker scheduling remain future work.

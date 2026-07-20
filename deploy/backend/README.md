@@ -1,8 +1,10 @@
 # CimaSim Backend Internal Deployment
 
 This deployment runs the phase 1 FastAPI backend only on `127.0.0.1:8089`.
-It is isolated from the public preview, Cloudflare Tunnel, Apollo PACS/DICOM,
-and RustDesk. It does not execute jobs, netlists, Xyce, ngspice, or simulations.
+It is isolated from Apollo PACS/DICOM and RustDesk. It validates authenticated
+fixed-template job requests and persists them to the dedicated
+`cimasim-job-spool` volume; Xyce execution remains in the separate networkless
+worker.
 
 The runtime configuration file lives outside the repository:
 
@@ -26,9 +28,9 @@ docker compose -p cimasim_backend \
   up -d --build
 ```
 
-The host publication is only `127.0.0.1:8089:8080`. The public preview proxies
-only `GET` and `HEAD` requests for `/api/health` and `/api/me` through the
-shared `cimasim-edge-net` network.
+The host publication remains only `127.0.0.1:8089:8080`. The preview proxies
+the existing health and identity routes plus only the exact authenticated jobs
+routes documented in `deploy/preview/README.md`.
 
 ## Build Context Filtering
 
@@ -52,6 +54,7 @@ Protected endpoints require a valid Cloudflare Access JWT and should return
 ```sh
 curl -i http://127.0.0.1:8089/api/health
 curl -i http://127.0.0.1:8089/api/me
+curl -i http://127.0.0.1:8089/api/jobs
 ```
 
 ## Logs
@@ -72,12 +75,13 @@ docker compose -p cimasim_backend \
   restart api
 ```
 
-## Stop Or Roll Back
+## Roll Back
 
 ```sh
+export CIMASIM_BACKEND_IMAGE_TAG=581edc6
 docker compose -p cimasim_backend \
-  -f deploy/backend/docker-compose.yml \
-  down --remove-orphans
+  -f /tmp/<rollback-dir>/backend-compose.yml \
+  up -d --no-deps --force-recreate api
 ```
 
 This rollback targets only the `cimasim_backend` project and does not affect
@@ -97,8 +101,9 @@ Do not use `docker system prune`, `docker network prune`, or a global
 
 The backend uses its own image, container, project name, bridge network, and
 loopback-only port. It has no Apollo networks, volumes, databases, credentials,
-or services attached. The container has no persistent volumes, no Docker socket,
-no privileged mode, no host network, and runs as UID/GID `10001`.
+or services attached. Its only persistent mount is `cimasim-job-spool:/spool`.
+It has no Docker socket, privileged mode, or host network, runs as UID/GID
+`10001`, and joins supplemental GID `10003` for spool access.
 
 ## Preview API Edge Network
 
