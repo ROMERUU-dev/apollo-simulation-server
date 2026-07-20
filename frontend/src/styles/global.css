@@ -267,3 +267,105 @@ textarea {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+.custom-netlist-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.55fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.custom-netlist-editor {
+  min-width: 0;
+}
+
+.custom-netlist-heading,
+.fixed-job-section-heading,
+.generic-series-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.custom-netlist-heading span {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  opacity: 0.65;
+}
+
+.custom-netlist-code {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  height: min(58vh, 620px);
+  margin-top: 10px;
+  border: 1px solid var(--color-divider);
+  background: var(--color-neutral-100);
+  overflow: hidden;
+}
+
+.custom-netlist-code pre {
+  margin: 0;
+  padding: 12px 8px;
+  text-align: right;
+  color: var(--color-neutral-600);
+  background: var(--color-neutral-200);
+  font: 13px/1.55 var(--font-mono);
+  overflow: hidden;
+  user-select: none;
+}
+
+.custom-netlist-code textarea {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  resize: none;
+  border: 0;
+  padding: 12px;
+  color: var(--color-text);
+  background: transparent;
+  font: 13px/1.55 var(--font-mono);
+  white-space: pre;
+  overflow: auto;
+}
+
+.custom-preflight {
+  margin: 14px 0;
+  padding: 12px 0;
+  border-top: 1px solid var(--color-divider);
+  border-bottom: 1px solid var(--color-divider);
+  color: var(--status-ok);
+}
+
+.custom-preflight dl {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 5px 12px;
+  margin: 10px 0 0;
+  color: var(--color-text);
+}
+
+.custom-preflight dd {
+  margin: 0;
+  font-family: var(--font-mono);
+}
+
+.generic-series-controls {
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.generic-series-controls fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  max-width: 75%;
+  border: 0;
+  padding: 0;
+}
+
+@media (max-width: 900px) {
+  .custom-netlist-layout {
+    grid-template-columns: 1fr;
+  }
+}

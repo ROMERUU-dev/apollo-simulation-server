@@ -19,7 +19,7 @@ export default function HomePage() {
   const { jobs, loading: jobsLoading, error: jobsError, refresh } = useJobs()
   const activeJobs = jobs.filter((job) => job.status === 'queued' || job.status === 'running')
   const completedJobs = jobs.filter((job) => job.status === 'succeeded')
-  const submissionAvailable = health?.features.job_submission === 'available'
+  const submissionAvailable = health?.features.custom_netlists === 'available'
 
   if (sessionError) {
     return (
@@ -33,7 +33,7 @@ export default function HomePage() {
 
   return (
     <div>
-      <PageHeader title="Inicio" subtitle="Backend conectado · Plantillas RC disponibles" />
+      <PageHeader title="Inicio" subtitle="Backend conectado · Simulación Xyce controlada" />
       {sessionLoading ? (
         <LoadingState label="Cargando sesión…" />
       ) : (
@@ -52,7 +52,7 @@ export default function HomePage() {
           </div>
           <div className="fixed-job-stat">
             <span>Ejecución</span>
-            <strong>Xyce · plantillas RC acotadas</strong>
+            <strong>Xyce · runner rootless aislado</strong>
           </div>
           <div className="fixed-job-stat">
             <span>Trabajos activos</span>
@@ -66,7 +66,7 @@ export default function HomePage() {
       )}
 
       <p className="fixed-job-boundary">
-        Solo están disponibles la prueba RC fija y la plantilla RC configurable acotada.
+        Las simulaciones RC anteriores permanecen disponibles como historial de solo lectura.
       </p>
 
       <div
@@ -101,7 +101,7 @@ export default function HomePage() {
       ) : jobs.length === 0 ? (
         <EmptyState
           title="Aún no tienes trabajos"
-          action={<Link to="/simulations/new">Ejecutar prueba RC</Link>}
+          action={<Link to="/simulations/new">Nueva netlist</Link>}
         />
       ) : (
         <ul style={{ margin: 0, padding: 0, border: '1px solid var(--color-divider)' }}>
@@ -133,7 +133,7 @@ export default function HomePage() {
         </h2>
         <EmptyState
           title="Persistencia de proyectos no disponible"
-          description="Los trabajos RC se almacenan directamente en la cola del backend."
+          description="Los trabajos de simulación se almacenan directamente en colas internas."
         />
       </section>
     </div>
