@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     job_active_per_user_limit: int = 2
     job_active_global_limit: int = 20
     job_list_limit: int = 100
+    admin_email_allowlist_file: Path | None = None
+    prometheus_url: str = "http://prometheus:9090"
+    prometheus_timeout_seconds: float = 2.0
+    monitoring_cache_seconds: int = 15
+    metrics_allowed_cidr: str = "127.0.0.0/8"
 
     @property
     def normalized_team_domain(self) -> str | None:

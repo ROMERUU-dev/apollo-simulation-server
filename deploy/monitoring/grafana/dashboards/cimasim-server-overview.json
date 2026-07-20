@@ -1,0 +1,28 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "panels": [
+    {"type":"stat","title":"CPU total","gridPos":{"h":4,"w":4,"x":0,"y":0},"targets":[{"expr":"100 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100"}]},
+    {"type":"stat","title":"Load 1 / 5 / 15","gridPos":{"h":4,"w":4,"x":4,"y":0},"targets":[{"expr":"node_load1"},{"expr":"node_load5"},{"expr":"node_load15"}]},
+    {"type":"stat","title":"RAM disponible","gridPos":{"h":4,"w":4,"x":8,"y":0},"targets":[{"expr":"node_memory_MemAvailable_bytes"}]},
+    {"type":"stat","title":"Swap usada","gridPos":{"h":4,"w":4,"x":12,"y":0},"targets":[{"expr":"node_memory_SwapTotal_bytes-node_memory_SwapFree_bytes"}]},
+    {"type":"stat","title":"Uptime","gridPos":{"h":4,"w":4,"x":16,"y":0},"targets":[{"expr":"time()-node_boot_time_seconds"}]},
+    {"type":"stat","title":"Temperatura","gridPos":{"h":4,"w":4,"x":20,"y":0},"targets":[{"expr":"max(node_hwmon_temp_celsius)"}]},
+    {"type":"timeseries","title":"Disco raíz y datos","gridPos":{"h":7,"w":8,"x":0,"y":4},"targets":[{"expr":"100*(1-node_filesystem_avail_bytes{mountpoint=~\"/|/srv/apollo-data\"}/node_filesystem_size_bytes{mountpoint=~\"/|/srv/apollo-data\"})"}]},
+    {"type":"timeseries","title":"IOPS y latencia","gridPos":{"h":7,"w":8,"x":8,"y":4},"targets":[{"expr":"rate(node_disk_reads_completed_total[5m])+rate(node_disk_writes_completed_total[5m])"},{"expr":"rate(node_disk_io_time_seconds_total[5m])"}]},
+    {"type":"timeseries","title":"Red entrada / salida","gridPos":{"h":7,"w":8,"x":16,"y":4},"targets":[{"expr":"sum(rate(node_network_receive_bytes_total[5m]))"},{"expr":"sum(rate(node_network_transmit_bytes_total[5m]))"}]},
+    {"type":"stat","title":"Backend / spool","gridPos":{"h":4,"w":6,"x":0,"y":11},"targets":[{"expr":"up{job=\"backend\"}"},{"expr":"cimasim_spool_ready"}]},
+    {"type":"stat","title":"Cola / ejecución","gridPos":{"h":4,"w":6,"x":6,"y":11},"targets":[{"expr":"cimasim_spool_jobs{status=\"queued\"}"},{"expr":"cimasim_spool_jobs{status=\"running\"}"}]},
+    {"type":"stat","title":"Éxito / fallo / timeout","gridPos":{"h":4,"w":6,"x":12,"y":11},"targets":[{"expr":"cimasim_spool_jobs{status=~\"succeeded|failed|timed_out\"}"}]},
+    {"type":"stat","title":"Artefactos","gridPos":{"h":4,"w":6,"x":18,"y":11},"targets":[{"expr":"cimasim_job_artifact_bytes"}]},
+    {"type":"timeseries","title":"Duración p50 / p95","gridPos":{"h":7,"w":12,"x":0,"y":15},"targets":[{"expr":"histogram_quantile(0.5,sum by(le)(rate(cimasim_job_duration_seconds_bucket[1h])))"},{"expr":"histogram_quantile(0.95,sum by(le)(rate(cimasim_job_duration_seconds_bucket[1h])))"}]},
+    {"type":"alertlist","title":"Alertas activas","gridPos":{"h":7,"w":12,"x":12,"y":15},"options":{"show":"current","sortOrder":1,"stateFilter":{"firing":true,"pending":true,"noData":true,"normal":false,"error":true}}}
+  ],
+  "schemaVersion": 42,
+  "tags": ["cimasim", "provisioned"],
+  "templating": {"list": []},
+  "time": {"from": "now-1h", "to": "now"},
+  "title": "CimaSim Server Overview",
+  "uid": "cimasim-server-overview",
+  "version": 1
+}

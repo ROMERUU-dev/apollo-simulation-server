@@ -7,6 +7,7 @@ from cimasim_api.config import Settings
 from cimasim_api.jobs.errors import IdempotencyConflictError, JobLimitExceededError
 from cimasim_api.jobs.models import JobCreateRequest, JobResponse
 from cimasim_api.jobs.store import JobStore
+from cimasim_api.metrics import record_job_created
 from cimasim_api.models import Identity
 
 IDEMPOTENCY_KEY_RE: Final = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
@@ -37,6 +38,7 @@ class JobService:
             if self.store.count_active() >= self.settings.job_active_global_limit:
                 raise JobLimitExceededError
             job, _created = self.store.create_job(identity.user_id, request, key)
+            record_job_created(request.template_id)
             return job, 201
 
 

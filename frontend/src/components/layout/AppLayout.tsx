@@ -9,7 +9,9 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Settings,
+  Activity,
 } from 'lucide-react'
+import { useAdminMonitoringAccess } from '../../hooks/useAdminMonitoringAccess'
 import { useJobs } from '../../hooks/useJobs'
 import { useSession } from '../../session/useSession'
 import { ThemeToggle } from './ThemeToggle'
@@ -31,6 +33,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const activeJobsCount = jobs.filter((j) => j.status === 'running' || j.status === 'queued').length
   const displayName = identity?.name?.trim() || identity?.email || 'Sesión no disponible'
   const backendConnected = health?.status === 'ok'
+  const monitoringAllowed = useAdminMonitoringAccess()
 
   const navItems: NavItemDef[] = [
     { to: '/', label: 'Inicio', icon: Home, end: true },
@@ -39,6 +42,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
     { to: '/jobs', label: 'Trabajos', icon: ClipboardList, badge: activeJobsCount },
     { to: '/results', label: 'Resultados', icon: LineChart },
     { to: '/settings', label: 'Configuración', icon: Settings },
+    ...(monitoringAllowed
+      ? [{ to: '/admin/monitoring', label: 'Monitorización', icon: Activity }]
+      : []),
   ]
 
   return (

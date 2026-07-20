@@ -1,5 +1,7 @@
 # Frontend architecture
 
+Administrators receive a `Monitorización` navigation entry only after the fixed summary endpoint returns `200`. A `403` is treated as normal lack of access and leaves the entry hidden. The page polls every 15 seconds only while visible, stops after repeated errors, and uses the existing ECharts dependency for bounded history series.
+
 This document explains how `frontend/` is put together: why it's divided
 the way it is, how data flows through it, and what's deliberately left
 out at this stage.

@@ -1,5 +1,7 @@
 # CimaSim Backend Architecture Phase 1
 
+The private observability extension is documented in `docs/observability.md`. `/metrics` is restricted to the monitoring CIDR and is never proxied by public Nginx. Administrative monitoring endpoints expose only fixed aggregate queries after Cloudflare Access validation and an external exact-email allowlist check.
+
 ## Scope
 
 This document defines the first safe backend architecture for CimaSim. The
