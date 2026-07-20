@@ -58,6 +58,14 @@ beforeEach(() => {
         }),
       )
     }
+    if (url === '/api/jobs') {
+      return Promise.resolve(
+        new Response(JSON.stringify({ jobs: [] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
+        }),
+      )
+    }
     return Promise.resolve(new Response('not found', { status: 404 }))
   })
 })

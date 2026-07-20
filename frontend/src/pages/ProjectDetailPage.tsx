@@ -7,19 +7,16 @@ import { LoadingState } from '../components/feedback/LoadingState'
 import { ErrorState } from '../components/feedback/ErrorState'
 import { ConfirmDialog } from '../components/feedback/ConfirmDialog'
 import { useProject } from '../hooks/useProjects'
-import { useJobs } from '../hooks/useJobs'
 import { useResults } from '../hooks/useResults'
 import { projectService } from '../services'
 import { NetlistList, ModelFileList } from '../features/projects/ProjectFileList'
 import { ProjectActivityFeed } from '../features/projects/ProjectActivityFeed'
-import { JobListItem } from '../features/jobs/JobListItem'
 import { ResultListItemCompact } from '../features/results/ResultListItemCompact'
 
 export default function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
   const { project, loading, refresh } = useProject(projectId)
-  const { jobs } = useJobs()
   const { results } = useResults()
   const [confirmingDelete, setConfirmingDelete] = useState(false)
 
@@ -34,7 +31,6 @@ export default function ProjectDetailPage() {
     )
   }
 
-  const projectJobs = jobs.filter((j) => j.projectId === project.id)
   const projectResults = results.filter((r) => r.projectId === project.id)
 
   async function handleDuplicate() {
@@ -127,15 +123,10 @@ export default function ProjectDetailPage() {
 
           <section className="card">
             <h2 style={{ fontSize: 16, marginBottom: 10 }}>Simulaciones</h2>
-            {projectJobs.length === 0 ? (
-              <p style={{ opacity: 0.6, fontSize: 13 }}>Sin simulaciones todavía.</p>
-            ) : (
-              <ul style={{ margin: 0, padding: 0 }}>
-                {projectJobs.map((job) => (
-                  <JobListItem key={job.id} job={job} />
-                ))}
-              </ul>
-            )}
+            <p style={{ opacity: 0.6, fontSize: 13 }}>
+              Los proyectos aún no tienen persistencia real. La prueba RC fija se gestiona desde
+              Trabajos.
+            </p>
           </section>
 
           <section className="card">

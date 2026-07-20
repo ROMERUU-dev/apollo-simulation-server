@@ -2,7 +2,7 @@ import type { ExecutionConfig, ParameterDefinition, SimulationConfig, SimulatorI
 import type { NetlistTemplate, SimulationService } from './types'
 
 function unavailable(): never {
-  throw new Error('La ejecución real aún no está habilitada.')
+  throw new Error('Solo está disponible la prueba RC fija desde Nueva simulación.')
 }
 
 class LiveSimulationService implements SimulationService {

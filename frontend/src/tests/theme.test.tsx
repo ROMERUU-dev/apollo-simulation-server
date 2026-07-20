@@ -5,6 +5,7 @@ import { AppLayout } from '../components/layout/AppLayout'
 import { MemoryRouter } from 'react-router-dom'
 import { useThemeStore } from '../hooks/useThemeStore'
 import { SessionProvider } from '../session/SessionContext'
+import { JobsProvider } from '../hooks/JobsProvider'
 
 describe('theme toggle', () => {
   beforeEach(() => {
@@ -22,9 +23,11 @@ describe('theme toggle', () => {
     render(
       <MemoryRouter>
         <SessionProvider>
-          <AppLayout>
-            <div>content</div>
-          </AppLayout>
+          <JobsProvider>
+            <AppLayout>
+              <div>content</div>
+            </AppLayout>
+          </JobsProvider>
         </SessionProvider>
       </MemoryRouter>,
     )

@@ -1,88 +1,117 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { NewSimulationWizard } from '../features/simulations/wizard/NewSimulationWizard'
+import NewSimulationPage from '../pages/NewSimulationPage'
 
-const VALID_NETLIST = 'VDD vdd 0 DC 5\nR1 vdd 0 1k\n.END\n'
+const refreshHealth = vi.fn()
+let submissionAvailable = true
 
-function renderWizard() {
+vi.mock('../session/useSession', () => ({
+  useSession: () => ({
+    health: {
+      status: 'ok',
+      features: {
+        identity: 'available',
+        job_submission: submissionAvailable ? 'available' : 'temporarily_unavailable',
+      },
+    },
+    refreshHealth,
+  }),
+}))
+
+const job = {
+  job_id: `job_${'a'.repeat(32)}`,
+  name: 'Prueba RC fija',
+  template_id: 'rc_lowpass_fixed_v1',
+  simulator: 'xyce',
+  status: 'queued',
+  created_at: '2026-07-20T12:00:00Z',
+  updated_at: '2026-07-20T12:00:00Z',
+  summary: null,
+}
+
+function renderPage() {
   return render(
     <MemoryRouter initialEntries={['/simulations/new']}>
       <Routes>
-        <Route path="/simulations/new" element={<NewSimulationWizard initialProjectId={null} />} />
+        <Route path="/simulations/new" element={<NewSimulationPage />} />
         <Route path="/jobs/:jobId" element={<div>Vista de trabajo</div>} />
       </Routes>
     </MemoryRouter>,
   )
 }
 
-describe('NewSimulationWizard', () => {
-  it('blocks advancing past step 1 with an empty netlist', async () => {
-    const user = userEvent.setup()
-    renderWizard()
-
-    await user.type(screen.getByLabelText(/nombre de la simulación/i), 'Prueba')
-    const nextButton = screen.getByRole('button', { name: /siguiente/i })
-    expect(nextButton).toBeDisabled()
-    expect(screen.getByText(/netlist está vacío/i)).toBeInTheDocument()
+describe('fixed RC simulation', () => {
+  beforeEach(() => {
+    submissionAvailable = true
+    refreshHealth.mockReset()
   })
 
-  it('advances and returns while keeping entered data', async () => {
+  it('shows only the fixed read-only RC configuration', () => {
+    renderPage()
+    expect(screen.getByRole('heading', { name: /prueba RC de paso bajo/i })).toBeInTheDocument()
+    expect(screen.getByText('rc_lowpass_fixed_v1')).toBeInTheDocument()
+    expect(screen.getByText('1 kΩ')).toBeInTheDocument()
+    expect(screen.queryByLabelText(/netlist/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/barrido/i)).not.toBeInTheDocument()
+  })
+
+  it('disables submission when job submission is unavailable', () => {
+    submissionAvailable = false
+    renderPage()
+    expect(screen.getByRole('button', { name: /ejecutar prueba RC/i })).toBeDisabled()
+    expect(screen.getByText(/no está disponible temporalmente/i)).toBeInTheDocument()
+  })
+
+  it('creates the fixed job and navigates without waiting for execution', async () => {
     const user = userEvent.setup()
-    renderWizard()
-
-    await user.type(screen.getByLabelText(/nombre de la simulación/i), 'Barrido de prueba')
-    await user.click(screen.getByLabelText(/contenido del netlist/i))
-    await user.paste(VALID_NETLIST)
-
-    await user.click(screen.getByRole('button', { name: /siguiente/i }))
-    expect(await screen.findByRole('button', { name: /agregar archivos/i })).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: /atrás/i }))
-    expect(await screen.findByLabelText(/nombre de la simulación/i)).toHaveValue(
-      'Barrido de prueba',
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify(job), {
+        status: 201,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    renderPage()
+    await user.click(screen.getByRole('button', { name: /ejecutar prueba RC/i }))
+    expect(await screen.findByText('Vista de trabajo')).toBeInTheDocument()
+    const [, init] = vi.mocked(fetch).mock.calls[0]
+    expect(init?.body).toBe(
+      JSON.stringify({ name: 'Prueba RC fija', template_id: 'rc_lowpass_fixed_v1' }),
     )
   })
 
-  it('keeps simulator execution disabled', async () => {
+  it('prevents a double click from sending two POST requests', async () => {
     const user = userEvent.setup()
-    renderWizard()
-
-    await user.type(screen.getByLabelText(/nombre de la simulación/i), 'Prueba')
-    await user.click(screen.getByLabelText(/contenido del netlist/i))
-    await user.paste(VALID_NETLIST)
-    await user.click(screen.getByRole('button', { name: /siguiente/i }))
-    await user.click(screen.getByRole('button', { name: /siguiente/i }))
-
-    expect(await screen.findByRole('radiogroup', { name: /simulador/i })).toBeInTheDocument()
-    const nextButton = screen.getByRole('button', { name: /siguiente/i })
-    expect(nextButton).toBeDisabled()
-    expect(await screen.findAllByText(/ejecución no habilitada/i)).toHaveLength(2)
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify(job), {
+        status: 201,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    renderPage()
+    await user.dblClick(screen.getByRole('button', { name: /ejecutar prueba RC/i }))
+    expect(await screen.findByText('Vista de trabajo')).toBeInTheDocument()
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1)
   })
 
-  it('shows the computed number of combinations on the parameters step', async () => {
+  it('reuses the same idempotency key after an unconfirmed request', async () => {
     const user = userEvent.setup()
-    renderWizard()
-
-    await user.type(screen.getByLabelText(/nombre de la simulación/i), 'Prueba')
-    await user.click(screen.getByLabelText(/contenido del netlist/i))
-    await user.paste(VALID_NETLIST)
-    await user.click(screen.getByRole('button', { name: /siguiente/i }))
-    await user.click(screen.getByRole('button', { name: /siguiente/i }))
-    expect(await screen.findAllByText(/ejecución no habilitada/i)).toHaveLength(2)
-  })
-
-  it('does not create a simulated job', async () => {
-    const user = userEvent.setup()
-    renderWizard()
-
-    await user.type(screen.getByLabelText(/nombre de la simulación/i), 'Prueba de trabajo')
-    await user.click(screen.getByLabelText(/contenido del netlist/i))
-    await user.paste(VALID_NETLIST)
-    await user.click(screen.getByRole('button', { name: /siguiente/i })) // -> files
-    await user.click(screen.getByRole('button', { name: /siguiente/i })) // -> simulator
-    expect(await screen.findAllByText(/ejecución no habilitada/i)).toHaveLength(2)
-    expect(screen.queryByText('Vista de trabajo')).not.toBeInTheDocument()
+    vi.mocked(fetch)
+      .mockRejectedValueOnce(new TypeError('network'))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(job), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+    renderPage()
+    await user.click(screen.getByRole('button', { name: /ejecutar prueba RC/i }))
+    expect(await screen.findByText(/no fue posible confirmar/i)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /reintentar envío/i }))
+    expect(await screen.findByText('Vista de trabajo')).toBeInTheDocument()
+    const firstHeaders = vi.mocked(fetch).mock.calls[0][1]?.headers as Record<string, string>
+    const secondHeaders = vi.mocked(fetch).mock.calls[1][1]?.headers as Record<string, string>
+    expect(firstHeaders['Idempotency-Key']).toBe(secondHeaders['Idempotency-Key'])
   })
 })
