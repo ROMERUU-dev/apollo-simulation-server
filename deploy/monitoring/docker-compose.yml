@@ -14,7 +14,7 @@ services:
     networks: [cimasim-monitoring-net]
     user: "65534:65534"
     read_only: true
-    tmpfs: [/tmp:size=32m,noexec,nosuid,nodev]
+    tmpfs: ["/tmp:size=32m,noexec,nosuid,nodev"]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     pids_limit: 128
@@ -43,7 +43,7 @@ services:
       - /:/host/root:ro,rslave
     networks: [cimasim-monitoring-net]
     read_only: true
-    tmpfs: [/tmp:size=16m,noexec,nosuid,nodev]
+    tmpfs: ["/tmp:size=16m,noexec,nosuid,nodev"]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     pids_limit: 64
@@ -63,7 +63,7 @@ services:
     volumes: [cimasim-job-spool:/spool:ro]
     networks: [cimasim-monitoring-net]
     read_only: true
-    tmpfs: [/tmp:size=16m,noexec,nosuid,nodev]
+    tmpfs: ["/tmp:size=16m,noexec,nosuid,nodev"]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     pids_limit: 64
@@ -90,7 +90,7 @@ services:
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     networks: [cimasim-monitoring-net]
     read_only: true
-    tmpfs: [/tmp:size=64m,noexec,nosuid,nodev]
+    tmpfs: ["/tmp:size=64m,noexec,nosuid,nodev"]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     pids_limit: 128
