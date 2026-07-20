@@ -1,0 +1,39 @@
+groups:
+  - name: cimasim
+    rules:
+      - alert: CimaSimBackendDown
+        expr: up{job="backend"} == 0
+        for: 2m
+        labels: {severity: critical}
+      - alert: CimaSimSpoolUnavailable
+        expr: cimasim_spool_ready == 0
+        for: 1m
+        labels: {severity: critical}
+      - alert: CimaSimWorkerStalled
+        expr: sum(cimasim_spool_jobs{status=~"queued|running"}) > 0 and time() - cimasim_worker_last_completion_timestamp_seconds > 300
+        for: 5m
+        labels: {severity: warning}
+      - alert: CimaSimRootDiskLow
+        expr: node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} < 0.15
+        for: 10m
+        labels: {severity: warning}
+      - alert: CimaSimDataDiskLow
+        expr: node_filesystem_avail_bytes{mountpoint="/srv/apollo-data"} / node_filesystem_size_bytes{mountpoint="/srv/apollo-data"} < 0.15
+        for: 10m
+        labels: {severity: warning}
+      - alert: CimaSimMemoryLow
+        expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.10
+        for: 10m
+        labels: {severity: warning}
+      - alert: CimaSimLoadHigh
+        expr: node_load15 > count without (cpu, mode) (node_cpu_seconds_total{mode="idle"}) * 1.5
+        for: 15m
+        labels: {severity: warning}
+      - alert: CimaSimTemperatureHigh
+        expr: max(node_hwmon_temp_celsius) > 85
+        for: 10m
+        labels: {severity: warning}
+      - alert: CimaSimJobFailureRateHigh
+        expr: sum(cimasim_spool_jobs{status=~"failed|timed_out"}) / clamp_min(cimasim_spool_jobs_total, 1) > 0.20
+        for: 15m
+        labels: {severity: warning}

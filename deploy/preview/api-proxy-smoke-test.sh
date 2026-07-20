@@ -74,6 +74,11 @@ expect_status GET /api/me 401
 expect_body_contains '"error"'
 expect_cache_no_store
 
+expect_status GET /api/admin/monitoring/summary 401
+expect_status GET '/api/admin/monitoring/history?range=1h' 401
+expect_status POST /api/admin/monitoring/summary 405
+expect_status GET /api/admin/monitoring/prometheus 404
+
 valid_job_id="job_00000000000000000000000000000000"
 valid_body='{"name":"Proxy smoke","template_id":"rc_lowpass_fixed_v1"}'
 expect_status GET /api/jobs 401
@@ -98,6 +103,7 @@ expect_status GET /readyz 404
 expect_status GET /docs 404
 expect_status GET /redoc 404
 expect_status GET /openapi.json 404
+expect_status GET /metrics 404
 expect_status POST /api/health 405
 
 printf 'API proxy smoke test PASS\n'

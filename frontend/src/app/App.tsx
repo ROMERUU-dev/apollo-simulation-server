@@ -16,6 +16,7 @@ const ResultDetailPage = lazy(() => import('../pages/ResultDetailPage'))
 const ResourcesPage = lazy(() => import('../pages/ResourcesPage'))
 const ModelsPage = lazy(() => import('../pages/ModelsPage'))
 const SettingsPage = lazy(() => import('../pages/SettingsPage'))
+const AdminMonitoringPage = lazy(() => import('../pages/AdminMonitoringPage'))
 const NotFoundPage = lazy(() => import('../pages/NotFoundPage'))
 
 export function App() {
@@ -37,6 +38,7 @@ export function App() {
                 <Route path="/resources" element={<ResourcesPage />} />
                 <Route path="/models" element={<ModelsPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/admin/monitoring" element={<AdminMonitoringPage />} />
                 <Route path="*" element={<NotFoundPage />} />
               </Routes>
             </Suspense>

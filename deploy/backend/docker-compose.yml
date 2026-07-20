@@ -15,6 +15,9 @@ services:
       CIMASIM_JOB_ACTIVE_PER_USER_LIMIT: "2"
       CIMASIM_JOB_ACTIVE_GLOBAL_LIMIT: "20"
       CIMASIM_JOB_LIST_LIMIT: "100"
+      CIMASIM_ADMIN_EMAIL_ALLOWLIST_FILE: /run/secrets/cimasim-admin-emails
+      CIMASIM_PROMETHEUS_URL: http://prometheus:9090
+      CIMASIM_METRICS_ALLOWED_CIDR: 172.31.240.0/24
     ports:
       - "127.0.0.1:8089:8080"
     networks:
@@ -22,11 +25,15 @@ services:
       cimasim-edge-net:
         aliases:
           - cimasim-api
+      cimasim-monitoring-net:
+        aliases:
+          - cimasim-api-monitoring
     user: "10001:10001"
     group_add:
       - "10003"
     volumes:
       - cimasim-job-spool:/spool
+      - ${CIMASIM_ADMIN_EMAIL_ALLOWLIST_FILE:-/home/romeruu/.config/cimasim/admin-emails.txt}:/run/secrets/cimasim-admin-emails:ro
     read_only: true
     tmpfs:
       - /tmp:size=64m,noexec,nosuid,nodev
@@ -65,6 +72,9 @@ networks:
   cimasim-edge-net:
     external: true
     name: cimasim-edge-net
+  cimasim-monitoring-net:
+    external: true
+    name: cimasim-monitoring-net
 
 volumes:
   cimasim-job-spool:
