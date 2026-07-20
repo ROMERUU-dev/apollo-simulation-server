@@ -131,3 +131,22 @@ Resource enforcement must protect Apollo:
 - conservative CPU and memory ceilings.
 
 Any future increase to CimaSim limits should include a host capacity review and Apollo health validation.
+
+## Custom netlist review limits
+
+| Resource | Custom limit |
+|---|---:|
+| Active custom jobs per user | 1 |
+| Custom submissions per user | 10 per hour |
+| Global custom executions | 1 |
+| Wall time | 60 seconds |
+| CPU | 1 |
+| RAM | 1 GiB |
+| PIDs | 64 |
+| Netlist | 64 KiB, 2,000 lines |
+| Result | 10 MiB, 100,000 rows, 128 columns |
+| Retention policy | 30 days |
+
+The 30-day value is policy for a later reviewed maintenance task; this PR does
+not add a deletion process. Custom capacity is lower priority than critical host
+services and cannot be increased without measurement and Apollo verification.

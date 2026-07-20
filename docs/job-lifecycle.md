@@ -1,4 +1,4 @@
-# CimaSim Bounded-Template Job Lifecycle
+# CimaSim Job Lifecycle
 
 This phase implements a file spool for two authorized templates:
 `rc_lowpass_fixed_v1` and `rc_lowpass_param_v1`. The parameterized template
@@ -72,3 +72,15 @@ Backend UID `10001` and worker UID `10002` share only the named CimaSim spool
 through supplemental GID `10003`. The single worker has no network or ports.
 Cancellation, retention automation, Redis/PostgreSQL, arbitrary inputs, and
 multiworker scheduling remain future work.
+
+## Custom review lifecycle
+
+`custom_xyce_netlist_v1` uses a separate spool and dispatcher. Its state names
+and terminal immutability match the legacy lifecycle, but it produces
+`results.csv` and never runs in the RC worker. The dispatcher atomically claims
+one job, writes `running`, launches one fixed rootless runner, validates the
+result, and writes `succeeded`, `failed`, or `timed_out`.
+
+The custom feature remains administratively disabled. Legacy requests and
+summaries continue to validate and are never moved into the custom spool. See
+`custom-runner-architecture.md` and `legacy-rc-migration.md`.
