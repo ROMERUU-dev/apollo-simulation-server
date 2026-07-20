@@ -16,8 +16,7 @@ export default function ResourcesPage() {
         <p style={{ marginTop: 0 }}>
           La API está {health?.status === 'ok' ? 'conectada' : 'no disponible'} y el envío de
           trabajos está{' '}
-          {health?.features.job_submission === 'not_available' ? 'aún no habilitado' : 'disponible'}
-          .
+          {health?.features.custom_netlists === 'available' ? 'disponible' : 'aún no habilitado'}.
         </p>
         <p style={{ marginBottom: 0 }}>
           CPU, RAM, almacenamiento, hostname, modelo de servidor y versiones de simuladores se

@@ -13,12 +13,17 @@ export default function ResultsIndexPage() {
     (job) =>
       job.status === 'succeeded' &&
       job.summary !== null &&
-      job.summary.artifacts.some((artifact) => artifact.filename === 'waveform.csv'),
+      job.summary.artifacts.some((artifact) =>
+        ['waveform.csv', 'results.csv'].includes(artifact.filename),
+      ),
   )
 
   return (
     <div>
-      <PageHeader title="Resultados" subtitle="Simulaciones RC completadas con waveform validado" />
+      <PageHeader
+        title="Resultados"
+        subtitle="Resultados Xyce validados y simulaciones RC heredadas"
+      />
       {loading ? (
         <LoadingState label="Cargando resultados…" />
       ) : error ? (

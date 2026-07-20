@@ -1,12 +1,14 @@
 export const FIXED_RC_TEMPLATE_ID = 'rc_lowpass_fixed_v1' as const
 export const PARAM_RC_TEMPLATE_ID = 'rc_lowpass_param_v1' as const
-export type JobTemplateId = typeof FIXED_RC_TEMPLATE_ID | typeof PARAM_RC_TEMPLATE_ID
+export const CUSTOM_XYCE_TEMPLATE_ID = 'custom_xyce_netlist_v1' as const
+export type JobTemplateId =
+  typeof FIXED_RC_TEMPLATE_ID | typeof PARAM_RC_TEMPLATE_ID | typeof CUSTOM_XYCE_TEMPLATE_ID
 
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'timed_out'
 export type TerminalJobStatus = 'succeeded' | 'failed' | 'timed_out'
 
 export interface ArtifactInfo {
-  filename: 'waveform.csv'
+  filename: 'waveform.csv' | 'results.csv'
   content_type: 'text/csv'
   size_bytes: number
 }
@@ -33,6 +35,8 @@ export interface JobSummary {
   artifacts: ArtifactInfo[]
   parameters?: RcParameters | null
   derived?: DerivedMetrics | null
+  analysis?: 'tran' | 'dc' | 'ac' | null
+  columns?: string[] | null
 }
 
 export interface Job {
@@ -64,6 +68,24 @@ export interface ParameterizedJobCreateRequest {
 }
 
 export type JobCreateRequest = FixedJobCreateRequest | ParameterizedJobCreateRequest
+
+export interface CustomJobCreateRequest {
+  name: string
+  template_id: typeof CUSTOM_XYCE_TEMPLATE_ID
+  netlist: string
+  requested_outputs: string[]
+}
+
+export interface NetlistPreflight {
+  valid: true
+  analysis: 'tran' | 'dc' | 'ac'
+  devices: number
+  nodes: number
+  models: number
+  subcircuits: number
+  outputs: string[]
+  sandbox_ready: boolean
+}
 
 export interface ArtifactListResponse {
   artifacts: ArtifactInfo[]

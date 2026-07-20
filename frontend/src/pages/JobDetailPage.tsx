@@ -9,6 +9,8 @@ import { ErrorState } from '../components/feedback/ErrorState'
 import { FixedJobStatusBadge } from '../features/jobs/FixedJobStatusBadge'
 import { jobTemplateLabel } from '../features/jobs/jobTemplate'
 import { ResultChart } from '../components/charts/ResultChart'
+import { CustomJobResults } from '../components/charts/CustomJobResults'
+import { CUSTOM_XYCE_TEMPLATE_ID } from '../api/jobTypes'
 import { useJob } from '../hooks/useJobs'
 import { formatBytes, formatDateTime } from '../utils/format'
 
@@ -28,6 +30,8 @@ export default function JobDetailPage() {
   const [waveformLoading, setWaveformLoading] = useState(false)
   const hasWaveform =
     job?.summary?.artifacts.some((artifact) => artifact.filename === 'waveform.csv') ?? false
+  const hasResults =
+    job?.summary?.artifacts.some((artifact) => artifact.filename === 'results.csv') ?? false
 
   useEffect(() => {
     if (!job || job.status !== 'succeeded' || !hasWaveform) return
@@ -61,7 +65,9 @@ export default function JobDetailPage() {
   }
 
   const statusMessage = jobStatusMessage(job.status)
-  const artifact = job.summary?.artifacts.find((item) => item.filename === 'waveform.csv')
+  const waveformArtifact = job.summary?.artifacts.find((item) => item.filename === 'waveform.csv')
+  const resultArtifact = job.summary?.artifacts.find((item) => item.filename === 'results.csv')
+  const artifact = waveformArtifact ?? resultArtifact
   const parameters = job.parameters ?? job.summary?.parameters ?? null
   const derived = job.derived ?? job.summary?.derived ?? null
   const shortJobId = `${job.job_id.slice(0, 12)}…`
@@ -161,7 +167,7 @@ export default function JobDetailPage() {
         </section>
       )}
 
-      {job.status === 'succeeded' && artifact && (
+      {job.status === 'succeeded' && waveformArtifact && (
         <section aria-labelledby="waveform-heading">
           <div className="fixed-job-section-heading">
             <div>
@@ -208,6 +214,10 @@ export default function JobDetailPage() {
             </div>
           )}
         </section>
+      )}
+
+      {job.status === 'succeeded' && job.template_id === CUSTOM_XYCE_TEMPLATE_ID && hasResults && (
+        <CustomJobResults jobId={job.job_id} />
       )}
 
       <p style={{ marginTop: 24 }}>
