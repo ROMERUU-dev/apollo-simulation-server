@@ -26,6 +26,7 @@ def podman_command(input_dir: Path, output_dir: Path, analysis: str) -> list[str
         "run",
         "--rm",
         "--network=none",
+        "--userns=keep-id:uid=10005,gid=10005",
         "--read-only",
         "--cap-drop=all",
         "--security-opt=no-new-privileges",

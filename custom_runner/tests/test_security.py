@@ -13,6 +13,7 @@ def test_podman_command_is_fixed_and_isolated(tmp_path: Path) -> None:
     joined = " ".join(command)
     assert command[0:3] == ["podman", "run", "--rm"]
     assert "--network=none" in command
+    assert "--userns=keep-id:uid=10005,gid=10005" in command
     assert "--read-only" in command
     assert "--cap-drop=all" in command
     assert "--security-opt=no-new-privileges" in command
