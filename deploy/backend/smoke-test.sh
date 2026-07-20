@@ -58,11 +58,15 @@ expect_body_contains '"service":"cimasim-api"'
 expect_status "/readyz" "200"
 expect_body_contains '"status":"ready"'
 expect_body_contains '"auth_configuration":"ok"'
+expect_body_contains '"job_spool":"ok"'
 
 expect_status "/api/health" "401"
 expect_cache_no_store
 
 expect_status "/api/me" "401"
+expect_cache_no_store
+
+expect_status "/api/jobs" "401"
 expect_cache_no_store
 
 expect_status "/docs" "404"

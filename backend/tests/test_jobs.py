@@ -244,9 +244,7 @@ def test_spool_root_file_is_unavailable(
 ) -> None:
     spool_root = tmp_path / "spool-file"
     spool_root.write_text("not a directory", encoding="utf-8")
-    bad_settings = settings.model_copy(
-        update={"jobs_enabled": True, "job_spool_root": spool_root}
-    )
+    bad_settings = settings.model_copy(update={"jobs_enabled": True, "job_spool_root": spool_root})
     with make_client(bad_settings, fetcher) as client:
         response = client.get("/api/jobs", headers=headers(key_material))
     assert response.status_code == 503
@@ -294,10 +292,13 @@ def test_artifact_download_headers_and_failures(
     with make_client(job_settings(settings, tmp_path), fetcher) as client:
         job_id = create_job(client, key_material)
         job_dir = tmp_path / "spool" / "jobs" / job_id
-        assert client.get(
-            f"/api/jobs/{job_id}/artifacts/waveform.csv",
-            headers=headers(key_material),
-        ).status_code == 404
+        assert (
+            client.get(
+                f"/api/jobs/{job_id}/artifacts/waveform.csv",
+                headers=headers(key_material),
+            ).status_code
+            == 404
+        )
         (job_dir / "status.json").write_text(
             json.dumps(
                 {
@@ -338,10 +339,13 @@ def test_artifact_download_headers_and_failures(
         assert response.headers["content-type"].startswith("text/csv")
         artifact.write_bytes(b"x" * (MAX_ARTIFACT_BYTES + 1))
         chmod_file(artifact)
-        assert client.get(
-            f"/api/jobs/{job_id}/artifacts/waveform.csv",
-            headers=headers(key_material),
-        ).status_code == 404
+        assert (
+            client.get(
+                f"/api/jobs/{job_id}/artifacts/waveform.csv",
+                headers=headers(key_material),
+            ).status_code
+            == 404
+        )
 
 
 def test_artifact_symlink_is_rejected(
@@ -401,4 +405,22 @@ def test_no_store_on_job_endpoints(
             client.get(f"/api/jobs/{job_id}", headers=headers(key_material)),
             client.get(f"/api/jobs/{job_id}/artifacts", headers=headers(key_material)),
         ):
+            assert response.headers["cache-control"] == "no-store"
+
+
+def test_head_is_authenticated_on_all_published_job_routes(
+    settings: Settings,
+    tmp_path: Path,
+    fetcher: FakeJwksFetcher,
+) -> None:
+    job_id = "job_00000000000000000000000000000000"
+    with make_client(job_settings(settings, tmp_path), fetcher) as client:
+        for path in (
+            "/api/jobs",
+            f"/api/jobs/{job_id}",
+            f"/api/jobs/{job_id}/artifacts",
+            f"/api/jobs/{job_id}/artifacts/waveform.csv",
+        ):
+            response = client.head(path)
+            assert response.status_code == 401
             assert response.headers["cache-control"] == "no-store"

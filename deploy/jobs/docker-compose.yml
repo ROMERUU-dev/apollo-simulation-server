@@ -1,0 +1,72 @@
+services:
+  spool-init:
+    image: busybox:1.36
+    container_name: cimasim-job-spool-init
+    profiles: ["init"]
+    command:
+      - sh
+      - -eu
+      - -c
+      - |
+        for path in /spool /spool/queued /spool/claimed /spool/jobs /spool/failed; do
+          if [ -L "$$path" ]; then
+            exit 1
+          fi
+          mkdir -p "$$path"
+        done
+        chown 0:10003 /spool /spool/queued /spool/claimed /spool/jobs /spool/failed
+        chmod 2770 /spool /spool/queued /spool/claimed /spool/jobs /spool/failed
+    network_mode: none
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - cimasim-job-spool:/spool
+    restart: "no"
+
+  worker:
+    image: cimasim-xyce-worker:${CIMASIM_XYCE_WORKER_IMAGE_TAG:-dev}
+    build:
+      context: ../..
+      dockerfile: deploy/worker/Dockerfile
+      additional_contexts:
+        xyce: ${CIMASIM_XYCE_PREFIX:?Set CIMASIM_XYCE_PREFIX to the local Xyce prefix}
+    container_name: cimasim-xyce-worker
+    entrypoint: ["python3", "-m", "cimasim_worker.daemon"]
+    command: ["--spool-root", "/spool", "--poll-seconds", "2"]
+    user: "10002:10002"
+    group_add:
+      - "10003"
+    network_mode: none
+    read_only: true
+    init: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    cpus: "2.0"
+    mem_limit: 2g
+    memswap_limit: 2g
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,mode=1777,size=256m
+    volumes:
+      - cimasim-job-spool:/spool
+    restart: unless-stopped
+    stop_grace_period: 30s
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "python3", "-m", "cimasim_worker.healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  cimasim-job-spool:
+    external: true
+    name: cimasim-job-spool

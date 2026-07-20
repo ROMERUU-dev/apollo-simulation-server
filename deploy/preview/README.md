@@ -54,6 +54,10 @@ Nginx proxies only exact requests for:
 - `HEAD /api/health`
 - `GET /api/me`
 - `HEAD /api/me`
+- `GET`, `HEAD`, and `POST /api/jobs`
+- `GET` and `HEAD /api/jobs/job_<32 lowercase hex>`
+- `GET` and `HEAD /api/jobs/job_<32 lowercase hex>/artifacts`
+- `GET` and `HEAD /api/jobs/job_<32 lowercase hex>/artifacts/waveform.csv`
 
 The proxy does not enable wildcard CORS. It forwards
 `Cf-Access-Jwt-Assertion` to the backend, strips `Cookie`, strips
@@ -68,8 +72,9 @@ The preview returns `404` without proxying for:
 - `/redoc`
 - `/openapi.json`
 
-Jobs, uploads, artifacts, backend liveness/readiness, and API documentation are
-not public in this phase.
+Uploads, cancellation, deletion, retry, logs, variable templates, arbitrary
+job subpaths, backend liveness/readiness, and API documentation are not public.
+Recognized routes reject unsupported methods with `405`.
 
 Do not show AUD, JWTs, `CF_Authorization`, `Cf-Access-Jwt-Assertion`, backend
 env file values, JWKS keys, `kid`, or modulus values in logs, commands,
@@ -106,7 +111,7 @@ export CIMASIM_PREVIEW_IMAGE_TAG=<short-sha>
 
 docker compose -p cimasim_preview \
   -f deploy/preview/docker-compose.yml \
-  up -d --build frontend
+  up -d --no-deps --force-recreate frontend
 ```
 
 ## Smoke Test
@@ -127,21 +132,15 @@ then recreate only the affected CimaSim services:
 ```sh
 export CIMASIM_BACKEND_ENV_FILE=/home/romeruu/.config/cimasim/backend.env
 export CIMASIM_BACKEND_IMAGE_TAG=581edc6
-export CIMASIM_PREVIEW_IMAGE_TAG=a7a5c2e
+export CIMASIM_PREVIEW_IMAGE_TAG=f2faf45
 
 docker compose -p cimasim_backend \
-  -f deploy/backend/docker-compose.yml \
+  -f /tmp/<rollback-dir>/backend-compose.yml \
   up -d --no-build --force-recreate api
 
 docker compose -p cimasim_preview \
-  -f deploy/preview/docker-compose.yml \
-  up -d --build frontend
-```
-
-Remove `cimasim-edge-net` only after it has no members:
-
-```sh
-docker network rm cimasim-edge-net
+  -f /tmp/<rollback-dir>/preview-compose.yml \
+  up -d --no-build --force-recreate frontend
 ```
 
 Do not use `docker compose down`, `docker system prune`,

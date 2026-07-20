@@ -45,7 +45,7 @@ The API service must:
 CimaSim should expose three distinct health surfaces:
 
 - `GET /healthz`: internal liveness only. It requires no authentication, must be reachable only from loopback or a private internal network, does not check dependencies, and returns only `status`, `service`, and `version`.
-- `GET /readyz`: internal readiness only. It requires no public exposure. In the first backend implementation phase it checks only critical authentication configuration because metadata store and queue services do not exist yet, and returns `503` when that configuration is unavailable.
+- `GET /readyz`: internal readiness only. It requires no public exposure. It checks critical authentication configuration and, when jobs are enabled, validates the complete spool structure plus an atomic write/replace/read/delete probe. It returns `503` when either dependency is unavailable.
 - `GET /api/health`: authenticated frontend health. It is protected by Cloudflare Access, returns limited UI-safe status, and must not reveal topology, host paths, internal versions, dependency names, queue backends, or sensitive configuration.
 
 `/healthz` and `/readyz` must not be exposed through Cloudflare public routes. They should be bound to loopback or an internal CimaSim-only network.
@@ -83,7 +83,11 @@ Current internal spool layout:
 - `/spool/jobs/<job_id>`: request, status, summary, and artifacts.
 - `/spool/failed`: failed claim markers retained for operator inspection.
 
-These paths must be owned by a dedicated CimaSim user and group, for example `cimasim-api` and `cimasim-worker`. They must not overlap with Apollo paths, Docker volumes, PACS storage, DICOM storage, database directories, or Cloudflare tunnel credentials.
+These paths use administrative owner root, shared GID `10003`, directory mode
+`2770`, and private group-readable/writable files. Backend UID `10001` and
+worker UID `10002` receive the shared group as a supplemental group. The named
+volume must not overlap with Apollo paths, volumes, PACS storage, DICOM storage,
+database directories, or Cloudflare tunnel credentials.
 
 ## Request Flow
 
@@ -121,10 +125,13 @@ Current preview:
 - Cloudflare Tunnel publishes `sim.cimasim.online`;
 - Apollo ports and networks are out of scope and must not be modified.
 
-Current backend and worker test phase:
+Current fixed-jobs deployment:
 
-- FastAPI job routes are implemented but not exposed by preview Nginx.
-- The isolated `deploy/job-spool-test` project uses no public ports and no active backend containers.
+- Preview Nginx exposes only exact authenticated `/api/jobs` routes with strict
+  lowercase 32-hex job IDs.
+- The production worker uses `network_mode: none`, no ports, and the dedicated
+  external `cimasim-job-spool` volume.
+- The isolated `deploy/job-spool-test` project remains the predeployment real-Xyce test.
 - `/healthz` and `/readyz` should be reachable only on loopback or that private internal network.
 - The backend must not use `host network`.
 - Containers must not mount `/var/run/docker.sock`.

@@ -3,8 +3,9 @@
 This backend provides the FastAPI application boundary, health endpoints,
 Cloudflare Access JWT validation, authenticated identity, and internal fixed
 template job endpoints. The job endpoints are implemented for the single
-authorized template `rc_lowpass_fixed_v1` and are not exposed by the preview
-Nginx configuration yet.
+authorized template `rc_lowpass_fixed_v1`. Production Nginx exposes only the
+exact authenticated collection, job-detail, artifact-list, and waveform routes.
+The frontend does not call these routes yet.
 
 It does not accept arbitrary netlists, user parameters, external models,
 includes, sweeps, cancellation, deletes, Redis, PostgreSQL, Docker socket
@@ -48,7 +49,9 @@ The backend never accepts a request-provided JWKS URL.
 
 `GET /healthz` remains available when authentication configuration is incomplete.
 
-`GET /readyz` returns `503` if critical authentication configuration is missing or invalid.
+`GET /readyz` returns `503` if critical authentication configuration is missing
+or invalid. When jobs are enabled it also validates every required spool
+directory and completes an atomic create, replace, read, and cleanup probe.
 
 Protected endpoints return `503` when authentication configuration is incomplete, `401` for missing or invalid JWTs, and `403` for a valid JWT whose email domain is not allowed.
 
@@ -57,7 +60,7 @@ There is no anonymous identity, fake user, auth bypass, or environment-provided 
 ## Available Endpoints
 
 - `GET /healthz`: unauthenticated liveness.
-- `GET /readyz`: unauthenticated internal readiness for auth configuration.
+- `GET /readyz`: unauthenticated internal readiness for auth and the enabled spool.
 - `GET /api/health`: authenticated frontend health.
 - `GET /api/me`: authenticated identity and initial limits.
 - `POST /api/jobs`: authenticated internal creation for `rc_lowpass_fixed_v1`.
@@ -66,8 +69,9 @@ There is no anonymous identity, fake user, auth bypass, or environment-provided 
 - `GET /api/jobs/{job_id}/artifacts`: authenticated internal artifact list.
 - `GET /api/jobs/{job_id}/artifacts/waveform.csv`: authenticated internal CSV download.
 
-The job routes still require Cloudflare Access JWT validation and remain
-unpublished by the preview proxy in this phase.
+The job routes require Cloudflare Access JWT validation. No route accepts
+netlists, model files, parameters, includes, sweeps, commands, paths, or a
+client-selected simulator.
 
 ## Running Locally
 

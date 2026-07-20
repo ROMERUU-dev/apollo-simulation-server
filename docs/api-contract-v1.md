@@ -145,7 +145,10 @@ Response `200 OK`:
 
 ## GET /readyz
 
-Internal readiness endpoint. It is unauthenticated, must be reachable only by loopback or a private internal network, and must not be exposed publicly. In the first backend implementation phase it checks only critical authentication configuration because metadata storage and queue services do not exist yet.
+Internal readiness endpoint. It is unauthenticated, must be reachable only by
+loopback or a private internal network, and must not be exposed publicly. It
+checks critical authentication configuration and, when jobs are enabled, the
+complete spool structure plus a cleaned-up atomic read/write probe.
 
 Response `200 OK`:
 
@@ -154,7 +157,8 @@ Response `200 OK`:
   "status": "ready",
   "service": "cimasim-api",
   "dependencies": {
-    "auth_configuration": "ok"
+    "auth_configuration": "ok",
+    "job_spool": "ok"
   }
 }
 ```
@@ -170,6 +174,10 @@ Response `503 Service Unavailable`:
   }
 }
 ```
+
+When authentication configuration is valid but the enabled spool is
+unavailable, `dependencies` contains `auth_configuration: ok` and
+`job_spool: unavailable`; no filesystem path or volume name is returned.
 
 ## GET /api/health
 
@@ -195,6 +203,7 @@ Response `503 Service Unavailable`:
   "status": "degraded",
   "service": "cimasim",
   "features": {
+    "identity": "available",
     "job_submission": "temporarily_unavailable"
   }
 }

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Response, status
 
 from cimasim_api.auth.dependencies import authenticated_identity
 from cimasim_api.config import Settings, get_app_settings
+from cimasim_api.jobs.readiness import spool_is_ready
 from cimasim_api.models import FrontendHealthResponse, HealthResponse, Identity, ReadinessResponse
 
 router = APIRouter()
@@ -30,7 +31,7 @@ def readyz(
         )
     dependencies = {"auth_configuration": "ok"}
     if settings.jobs_enabled:
-        if not settings.job_spool_root.exists() or settings.job_spool_root.is_symlink():
+        if not spool_is_ready(settings.job_spool_root):
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
             dependencies["job_spool"] = "unavailable"
             return ReadinessResponse(
@@ -53,9 +54,17 @@ def api_health(
     _identity: IdentityDep,
 ) -> FrontendHealthResponse:
     response.headers["Cache-Control"] = "no-store"
-    job_submission = "available" if settings.jobs_enabled else "not_available"
+    job_submission = "not_available"
+    response_status = "ok"
+    if settings.jobs_enabled:
+        if spool_is_ready(settings.job_spool_root):
+            job_submission = "available"
+        else:
+            response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+            response_status = "degraded"
+            job_submission = "temporarily_unavailable"
     return FrontendHealthResponse(
-        status="ok",
+        status=response_status,
         service="cimasim",
         features={"identity": "available", "job_submission": job_submission},
     )

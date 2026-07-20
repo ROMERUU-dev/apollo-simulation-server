@@ -36,6 +36,7 @@ def create_job(
     return job
 
 
+@router.head("", response_model=JobListResponse, include_in_schema=False)
 @router.get("", response_model=JobListResponse)
 def list_jobs(
     response: Response,
@@ -47,6 +48,7 @@ def list_jobs(
     return JobListResponse(jobs=jobs)
 
 
+@router.head("/{job_id}", response_model=JobResponse, include_in_schema=False)
 @router.get("/{job_id}", response_model=JobResponse)
 def get_job(
     job_id: str,
@@ -58,6 +60,11 @@ def get_job(
     return JobStore(settings).get_job(identity.user_id, job_id)
 
 
+@router.head(
+    "/{job_id}/artifacts",
+    response_model=ArtifactListResponse,
+    include_in_schema=False,
+)
 @router.get("/{job_id}/artifacts", response_model=ArtifactListResponse)
 def list_artifacts(
     job_id: str,
@@ -72,6 +79,7 @@ def list_artifacts(
     return ArtifactListResponse(artifacts=job.summary.artifacts)
 
 
+@router.head("/{job_id}/artifacts/waveform.csv", include_in_schema=False)
 @router.get("/{job_id}/artifacts/waveform.csv")
 def get_waveform(
     job_id: str,
