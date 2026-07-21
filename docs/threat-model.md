@@ -8,7 +8,7 @@ Primary assets:
 
 - Cloudflare Access identity assertions;
 - CimaSim user and job metadata;
-- bounded numeric RC parameters and internally generated netlists;
+- bounded custom netlists and legacy RC metadata;
 - generated logs and artifacts;
 - worker host CPU, RAM, disk, and process table;
 - Xyce and ngspice executables on the host;
@@ -19,12 +19,12 @@ Primary assets:
 | Threat | Impact | Mitigations |
 |---|---|---|
 | Authenticated malicious users | Abuse of legitimate access to consume resources, access other users' jobs, or probe backend behavior. | Validate Cloudflare Access JWTs server-side, enforce per-user authorization on every resource, rate limit, audit actions, and apply per-user quotas. |
-| Manipulated netlists | Attempted simulator escape, parser abuse, unexpected includes, or hidden references to host files. | Never accept user netlist text. Select one of two exact packaged templates and generate the configurable netlist only from independently validated numbers. |
+| Manipulated netlists | Attempted simulator escape, parser abuse, unexpected includes, or hidden references to host files. | Parse a bounded allowlisted subset, reject file and plugin features, revalidate at each boundary, and run only inside a rootless per-job sandbox. Keep the feature disabled until that sandbox gate passes. |
 | Numeric parameter abuse | Non-finite, ambiguous, extreme, or physically useless values consume resources or alter generated syntax. | Require JSON numbers, bounded representation and ranges, validate `tau` and duration/tau in backend and worker, and format with a strict scientific-notation function. |
 | Excessive CPU consumption | Worker starvation and impact to Apollo or host services. | Validation phase is capped at 1 worker and 2 total CimaSim threads. Pilot real simulation is capped at 2 workers and 8 to 16 total threads only after load testing and Apollo verification. |
 | Excessive RAM consumption | Host memory pressure affecting Apollo or system stability. | Validation phase is capped at 2 GB total worker RAM. Pilot real simulation is capped at 8 GB per worker and 16 GB total. Monitor RSS and terminate jobs exceeding limits. |
 | Excessive disk consumption | Filling host disk, breaking CimaSim, Apollo, or OS services. | Enforce 1 GB per user, per-job artifact limits, maximum output file size, 30-day retention, disk watermarks, and cleanup jobs. |
-| Hung processes | Worker slots remain occupied indefinitely. | Enforce 30-minute wall clock timeout, process group termination, heartbeat leases, and terminal `timed_out` state. |
+| Hung processes | Worker slots remain occupied indefinitely. | Enforce a 60-second custom wall clock timeout, process group termination, and terminal `timed_out` state. |
 | Host file reads | Netlists or artifacts attempt to read `/etc`, home directories, Apollo data, or secrets. | Use per-job directories, reject absolute paths and traversal, run workers as dedicated UID/GID, restrict filesystem permissions, and later consider sandboxing with read-only allowlists. |
 | Command execution | User input becomes a shell command or simulator flag escape. | Never accept commands from users. Use fixed executable allowlists. Run `subprocess` with a list of arguments and `shell=False`. Do not interpolate user text into shell strings. |
 | Path traversal | Access to files outside job or artifact roots through `../` paths. | Normalize paths, resolve within approved roots, reject paths escaping the root, and test path handling. |
@@ -57,8 +57,8 @@ Primary assets:
 - Use a separate temporary directory per job.
 - Use dedicated UID/GID values for workers.
 - Enforce CPU, memory, time, process, and file limits.
-- Reject user netlists, models, includes, paths, expressions, and textual units.
-- Validate bounded RC numbers independently in the frontend, backend, and worker.
+- Reject includes, external models, plugins, paths, output files, control blocks, and commands.
+- Validate bounded custom syntax independently in the backend, dispatcher, and runner.
 - Block symbolic links.
 - Delete temporary jobs through controlled cleanup.
 - Verify `Cf-Access-Jwt-Assertion` in the backend.
@@ -75,7 +75,7 @@ Primary assets:
 ## Open Security Questions
 
 - What are the exact Cloudflare Access Application Audience AUD values for staging and production deployment configuration?
-- Which exact Xyce and ngspice CLI flags are safe for the first execution phase?
-- Should workers run in containers, systemd scopes, or another sandbox mechanism?
+- Which additional Xyce directives can be safely added after corpus and sandbox testing?
+- Can the target host satisfy the rootless Podman account and subuid/subgid gate?
 - What global host-level resource reservation is required to protect Apollo during heavy CimaSim use?
 - What artifact file types should be downloadable in the first execution release?

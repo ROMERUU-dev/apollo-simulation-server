@@ -57,9 +57,7 @@ export default function SettingsPage() {
           <dd style={{ margin: 0 }}>{health?.status === 'ok' ? 'Conectado' : 'No disponible'}</dd>
           <dt>Envío de trabajos</dt>
           <dd style={{ margin: 0 }}>
-            {health?.features.job_submission === 'not_available'
-              ? 'Aún no habilitado'
-              : 'Disponible'}
+            {health?.features.custom_netlists === 'available' ? 'Disponible' : 'Aún no habilitado'}
           </dd>
           <dt>Límites</dt>
           <dd style={{ margin: 0 }}>

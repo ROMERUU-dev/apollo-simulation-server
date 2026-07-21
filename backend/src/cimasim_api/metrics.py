@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from ipaddress import ip_address, ip_network
 
 from fastapi import APIRouter, HTTPException, Request
@@ -9,6 +10,7 @@ from prometheus_client import (
     CONTENT_TYPE_LATEST,
     CollectorRegistry,
     Counter,
+    Gauge,
     Histogram,
     generate_latest,
 )
@@ -34,6 +36,16 @@ JOBS_CREATED = Counter(
     "cimasim_jobs_created_total",
     "Jobs accepted by the API.",
     ("job_kind",),
+    registry=METRICS_REGISTRY,
+)
+CUSTOM_DISPATCHER_UP = Gauge(
+    "cimasim_custom_dispatcher_up",
+    "Whether the custom dispatcher heartbeat is currently fresh.",
+    registry=METRICS_REGISTRY,
+)
+CUSTOM_DISPATCHER_HEARTBEAT_AGE = Gauge(
+    "cimasim_custom_dispatcher_heartbeat_age_seconds",
+    "Age of the sanitized custom dispatcher heartbeat.",
     registry=METRICS_REGISTRY,
 )
 
@@ -71,6 +83,7 @@ def metrics(request: Request) -> Response:
         raise HTTPException(status_code=404) from exc
     if address not in allowed:
         raise HTTPException(status_code=404)
+    _update_custom_dispatcher_metrics(request)
     return Response(generate_latest(METRICS_REGISTRY), media_type=CONTENT_TYPE_LATEST)
 
 
@@ -81,3 +94,28 @@ def record_job_created(template_id: str) -> None:
         "custom_xyce_netlist_v1": "custom_netlist",
     }.get(template_id, "custom_netlist")
     JOBS_CREATED.labels(kind).inc()
+
+
+def _update_custom_dispatcher_metrics(request: Request) -> None:
+    settings = request.app.state.settings
+    if not getattr(settings, "custom_netlists_enabled", False):
+        CUSTOM_DISPATCHER_UP.set(0)
+        CUSTOM_DISPATCHER_HEARTBEAT_AGE.set(float("nan"))
+        return
+    heartbeat = settings.custom_job_spool_root / "state" / "dispatcher.json"
+    try:
+        import json
+
+        data = json.loads(heartbeat.read_text(encoding="utf-8"))
+        updated_at = datetime.fromisoformat(str(data["updated_at"]).replace("Z", "+00:00"))
+        age = (datetime.now(UTC) - updated_at.astimezone(UTC)).total_seconds()
+        CUSTOM_DISPATCHER_HEARTBEAT_AGE.set(max(age, 0.0))
+        CUSTOM_DISPATCHER_UP.set(
+            1
+            if age <= settings.custom_dispatcher_heartbeat_ttl_seconds
+            and data.get("status") in {"idle", "running", "stopping"}
+            else 0
+        )
+    except (OSError, ValueError, KeyError, TypeError):
+        CUSTOM_DISPATCHER_UP.set(0)
+        CUSTOM_DISPATCHER_HEARTBEAT_AGE.set(float("nan"))

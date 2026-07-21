@@ -1,4 +1,6 @@
+import json
 import os
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from conftest import AUDIENCE, TEAM_DOMAIN, auth_headers, make_client, make_token
@@ -32,7 +34,7 @@ def test_readyz_responds_200_with_valid_configuration(client: TestClient) -> Non
     assert response.json() == {
         "status": "ready",
         "service": "cimasim-api",
-        "dependencies": {"auth_configuration": "ok"},
+        "dependencies": {"auth_configuration": "ok", "custom_subsystem": "disabled"},
     }
 
 
@@ -74,7 +76,11 @@ def test_api_health_returns_limited_authenticated_status(client, key_material) -
     assert response.json() == {
         "status": "ok",
         "service": "cimasim",
-        "features": {"identity": "available", "job_submission": "not_available"},
+        "features": {
+            "identity": "available",
+            "job_submission": "not_available",
+            "custom_netlists": "disabled",
+        },
     }
     serialized = response.text.lower()
     assert "cimasim.cloudflareaccess.com" not in serialized
@@ -169,6 +175,7 @@ def test_api_health_degrades_when_enabled_spool_is_unavailable(
         "features": {
             "identity": "available",
             "job_submission": "temporarily_unavailable",
+            "custom_netlists": "disabled",
         },
     }
     assert str(spool) not in response.text
@@ -187,3 +194,68 @@ def test_api_health_reports_jobs_available_after_spool_probe(
 
     assert response.status_code == 200
     assert response.json()["features"]["job_submission"] == "available"
+
+
+def make_custom_spool(root: Path, *, heartbeat_age_seconds: int = 0) -> None:
+    make_spool(root)
+    failed = root / "failed"
+    if failed.exists():
+        failed.rmdir()
+    state = root / "state"
+    state.mkdir(mode=SPOOL_DIR_MODE)
+    os.chmod(state, SPOOL_DIR_MODE)
+    updated_at = datetime.now(UTC) - timedelta(seconds=heartbeat_age_seconds)
+    (state / "dispatcher.json").write_text(
+        json.dumps(
+            {
+                "status": "idle",
+                "updated_at": updated_at.isoformat(),
+                "runner_image_digest": "sha256:aaaaaaaaaaaa",
+                "jobs_claimed_total": 0,
+                "last_completion_at": None,
+                "last_error_code": None,
+            }
+        ),
+        encoding="utf-8",
+    )
+    os.chmod(state / "dispatcher.json", 0o660)
+
+
+def test_readyz_requires_recent_dispatcher_heartbeat_when_custom_enabled(
+    settings: Settings, tmp_path: Path
+) -> None:
+    custom = tmp_path / "custom"
+    make_custom_spool(custom, heartbeat_age_seconds=120)
+    app = create_app(
+        settings.model_copy(
+            update={
+                "custom_netlists_enabled": True,
+                "custom_job_spool_root": custom,
+                "custom_dispatcher_heartbeat_ttl_seconds": 30,
+            }
+        )
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/readyz")
+
+    assert response.status_code == 503
+    assert response.json()["dependencies"]["custom_subsystem"] == "unavailable"
+
+
+def test_readyz_accepts_recent_dispatcher_heartbeat_when_custom_enabled(
+    settings: Settings, tmp_path: Path
+) -> None:
+    custom = tmp_path / "custom"
+    make_custom_spool(custom)
+    app = create_app(
+        settings.model_copy(
+            update={"custom_netlists_enabled": True, "custom_job_spool_root": custom}
+        )
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/readyz")
+
+    assert response.status_code == 200
+    assert response.json()["dependencies"]["custom_subsystem"] == "ok"

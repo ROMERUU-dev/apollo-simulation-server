@@ -2,6 +2,7 @@ import { ApiError } from './errors'
 import {
   FIXED_RC_TEMPLATE_ID,
   PARAM_RC_TEMPLATE_ID,
+  CUSTOM_XYCE_TEMPLATE_ID,
   type ArtifactInfo,
   type ArtifactListResponse,
   type Job,
@@ -11,6 +12,8 @@ import {
   type JobCreateRequest,
   type JobTemplateId,
   type RcParameters,
+  type CustomJobCreateRequest,
+  type NetlistPreflight,
   type TerminalJobStatus,
 } from './jobTypes'
 import { validateRcParameters } from './rcParameters'
@@ -20,7 +23,11 @@ const DEFAULT_TIMEOUT_MS = 8000
 const JOB_ID_PATTERN = /^job_[0-9a-f]{32}$/
 const JOB_STATUSES: JobStatus[] = ['queued', 'running', 'succeeded', 'failed', 'timed_out']
 const TERMINAL_STATUSES: TerminalJobStatus[] = ['succeeded', 'failed', 'timed_out']
-const TEMPLATE_IDS: JobTemplateId[] = [FIXED_RC_TEMPLATE_ID, PARAM_RC_TEMPLATE_ID]
+const TEMPLATE_IDS: JobTemplateId[] = [
+  FIXED_RC_TEMPLATE_ID,
+  PARAM_RC_TEMPLATE_ID,
+  CUSTOM_XYCE_TEMPLATE_ID,
+]
 
 export interface JobRequestOptions {
   signal?: AbortSignal
@@ -57,6 +64,14 @@ function errorForStatus(status: number, requestId: string | null): ApiError {
       requestId,
     )
   }
+  if (status === 410) {
+    return new ApiError(
+      'Las plantillas RC son históricas y de solo lectura.',
+      'http',
+      status,
+      requestId,
+    )
+  }
   if (status === 422) {
     return new ApiError(
       'La configuración RC no fue aceptada por el servidor.',
@@ -87,7 +102,7 @@ function errorForStatus(status: number, requestId: string | null): ApiError {
 function parseArtifact(value: unknown): ArtifactInfo {
   if (
     !isRecord(value) ||
-    value.filename !== 'waveform.csv' ||
+    !['waveform.csv', 'results.csv'].includes(value.filename as string) ||
     value.content_type !== 'text/csv' ||
     typeof value.size_bytes !== 'number' ||
     !Number.isSafeInteger(value.size_bytes) ||
@@ -164,6 +179,21 @@ function parseSummary(value: unknown): JobSummary | null {
   }
   if ('parameters' in value) summary.parameters = parseParameters(value.parameters)
   if ('derived' in value) summary.derived = parseDerived(value.derived)
+  if ('analysis' in value) {
+    if (value.analysis !== null && !['tran', 'dc', 'ac'].includes(value.analysis as string)) {
+      throw new ApiError('La API devolvió un análisis inválido.', 'invalid-json')
+    }
+    summary.analysis = value.analysis as 'tran' | 'dc' | 'ac' | null
+  }
+  if ('columns' in value) {
+    if (
+      value.columns !== null &&
+      (!Array.isArray(value.columns) || value.columns.some((item) => typeof item !== 'string'))
+    ) {
+      throw new ApiError('La API devolvió columnas inválidas.', 'invalid-json')
+    }
+    summary.columns = value.columns as string[] | null
+  }
   return summary
 }
 
@@ -281,6 +311,55 @@ export async function createRcJob(
     throw new ApiError('La API devolvió un estado inesperado.', 'http', status)
   }
   return { job: parseJob(body), recovered: status === 200 }
+}
+
+export async function createCustomJob(
+  request: CustomJobCreateRequest,
+  idempotencyKey: string,
+  options: JobRequestOptions = {},
+): Promise<{ job: Job; recovered: boolean }> {
+  const { body, status } = await requestJson(
+    '/api/jobs',
+    {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey,
+      },
+      body: JSON.stringify(request),
+    },
+    options,
+  )
+  if (status !== 200 && status !== 201) {
+    throw new ApiError('La API devolvió un estado inesperado.', 'http', status)
+  }
+  return { job: parseJob(body), recovered: status === 200 }
+}
+
+export async function preflightCustomJob(
+  request: CustomJobCreateRequest,
+  options: JobRequestOptions = {},
+): Promise<NetlistPreflight> {
+  const { body } = await requestJson(
+    '/api/jobs/preflight',
+    {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    },
+    options,
+  )
+  if (
+    !isRecord(body) ||
+    body.valid !== true ||
+    !['tran', 'dc', 'ac'].includes(body.analysis as string) ||
+    !Array.isArray(body.outputs) ||
+    typeof body.sandbox_ready !== 'boolean'
+  ) {
+    throw new ApiError('La API devolvió un preflight inválido.', 'invalid-json')
+  }
+  return body as unknown as NetlistPreflight
 }
 
 export async function listJobs(options: JobRequestOptions = {}): Promise<Job[]> {
