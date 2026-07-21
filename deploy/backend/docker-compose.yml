@@ -34,8 +34,10 @@ services:
     user: "10001:10001"
     group_add:
       - "10003"
+      - "${CIMASIM_CUSTOM_SPOOL_GID:?set CIMASIM_CUSTOM_SPOOL_GID}"
     volumes:
       - cimasim-job-spool:/spool
+      - ${CIMASIM_CUSTOM_SPOOL_ROOT:-/var/lib/cimasim-custom-spool}:/custom-spool
       - ${CIMASIM_ADMIN_EMAIL_ALLOWLIST_FILE:-/home/romeruu/.config/cimasim/admin-emails.txt}:/run/secrets/cimasim-admin-emails:ro
     read_only: true
     tmpfs:

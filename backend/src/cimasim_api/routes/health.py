@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Response, status
 
 from cimasim_api.auth.dependencies import authenticated_identity
 from cimasim_api.config import Settings, get_app_settings
+from cimasim_api.jobs.custom_readiness import custom_subsystem_is_ready
 from cimasim_api.jobs.readiness import spool_is_ready
 from cimasim_api.models import FrontendHealthResponse, HealthResponse, Identity, ReadinessResponse
 
@@ -41,13 +42,18 @@ def readyz(
             )
         dependencies["job_spool"] = "ok"
     if settings.custom_netlists_enabled:
-        if not spool_is_ready(settings.custom_job_spool_root):
+        if not custom_subsystem_is_ready(
+            settings.custom_job_spool_root,
+            settings.custom_dispatcher_heartbeat_ttl_seconds,
+        ):
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-            dependencies["custom_job_spool"] = "unavailable"
+            dependencies["custom_subsystem"] = "unavailable"
             return ReadinessResponse(
                 status="not_ready", service="cimasim-api", dependencies=dependencies
             )
-        dependencies["custom_job_spool"] = "ok"
+        dependencies["custom_subsystem"] = "ok"
+    else:
+        dependencies["custom_subsystem"] = "disabled"
     return ReadinessResponse(
         status="ready",
         service="cimasim-api",
@@ -73,12 +79,17 @@ def api_health(
             response_status = "degraded"
             job_submission = "temporarily_unavailable"
     if settings.custom_netlists_enabled:
-        if spool_is_ready(settings.custom_job_spool_root):
+        if custom_subsystem_is_ready(
+            settings.custom_job_spool_root,
+            settings.custom_dispatcher_heartbeat_ttl_seconds,
+        ):
             custom_netlists = "available"
         else:
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
             response_status = "degraded"
             custom_netlists = "temporarily_unavailable"
+    else:
+        custom_netlists = "disabled"
     return FrontendHealthResponse(
         status=response_status,
         service="cimasim",
