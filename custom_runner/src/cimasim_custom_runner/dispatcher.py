@@ -17,10 +17,20 @@ from cimasim_custom_runner.results import validate_results
 from cimasim_custom_runner.validation import revalidate
 
 JOB_RE: Final = re.compile(r"^job_[0-9a-f]{32}$")
-RUNNER_IMAGE: Final = "localhost/cimasim-custom-runner:review"
+RUNNER_IMAGE_ID_RE: Final = re.compile(r"^sha256:[0-9a-f]{64}$")
+HEARTBEAT_NAME: Final = "dispatcher.json"
 
 
-def podman_command(input_dir: Path, output_dir: Path, analysis: str) -> list[str]:
+def validate_runner_image_id(value: str) -> str:
+    if not RUNNER_IMAGE_ID_RE.fullmatch(value):
+        raise ValueError("runner image must be a full sha256 image id")
+    return value
+
+
+def podman_command(
+    input_dir: Path, output_dir: Path, analysis: str, runner_image: str
+) -> list[str]:
+    image = validate_runner_image_id(runner_image)
     return [
         "podman",
         "run",
@@ -37,28 +47,35 @@ def podman_command(input_dir: Path, output_dir: Path, analysis: str) -> list[str
         "--ulimit=nofile=256:256",
         f"--volume={input_dir}:/input:ro,Z",
         f"--volume={output_dir}:/output:rw,Z",
-        RUNNER_IMAGE,
+        image,
         "--analysis",
         analysis,
     ]
 
 
 class Dispatcher:
-    def __init__(self, spool: Path, poll_seconds: float = 2.0) -> None:
+    def __init__(self, spool: Path, runner_image: str, poll_seconds: float = 2.0) -> None:
         self.spool = spool
+        self.runner_image = validate_runner_image_id(runner_image)
         self.poll_seconds = poll_seconds
         self.stopping = False
+        self.jobs_claimed_total = 0
+        self.last_completion_at: str | None = None
+        self.last_error_code: str | None = None
 
     def request_stop(self, _signum: int, _frame: object) -> None:
         self.stopping = True
 
     def run(self) -> None:
+        self._write_heartbeat("idle")
         while not self.stopping:
             marker = self._claim()
             if marker is None:
+                self._write_heartbeat("idle")
                 time.sleep(self.poll_seconds)
                 continue
             self._execute(marker)
+        self._write_heartbeat("stopping")
 
     def _claim(self) -> Path | None:
         queued = self.spool / "queued"
@@ -71,6 +88,7 @@ class Dispatcher:
                 os.replace(marker, target)
             except FileNotFoundError:
                 continue
+            self.jobs_claimed_total += 1
             return target
         return None
 
@@ -93,6 +111,7 @@ class Dispatcher:
         try:
             request = _read_request(job / "request.json", job_id)
             analysis = str(request["analysis"])
+            self._write_heartbeat("running")
             input_dir.mkdir(mode=0o2770, exist_ok=False)
             output_dir.mkdir(mode=0o2770, exist_ok=False)
             os.chmod(input_dir, 0o2770)  # noqa: S103 - group-only setgid spool directory
@@ -101,9 +120,14 @@ class Dispatcher:
             netlist.write_text(cast(str, request["netlist"]), encoding="utf-8")
             os.chmod(netlist, 0o640)
             _write_json(job / "status.json", _status(request, "running"))
-            returncode = self._run_podman(podman_command(input_dir, output_dir, analysis))
+            returncode = self._run_podman(
+                podman_command(input_dir, output_dir, analysis, self.runner_image)
+            )
             if returncode != 0:
                 final = "timed_out" if returncode == 124 else "failed"
+                self.last_error_code = (
+                    "simulation_timeout" if returncode == 124 else "podman_failed"
+                )
                 self._write_terminal(job, request, analysis, final, started)
                 return
 
@@ -122,13 +146,17 @@ class Dispatcher:
                 columns=columns,
                 artifact=destination,
             )
+            self.last_error_code = None
         except (OSError, ValueError):
             if request is not None and analysis is not None:
+                self.last_error_code = "dispatcher_error"
                 self._write_terminal(job, request, analysis, "failed", started)
         finally:
+            self.last_completion_at = datetime.now(UTC).isoformat()
             shutil.rmtree(input_dir, ignore_errors=True)
             shutil.rmtree(output_dir, ignore_errors=True)
             marker.unlink(missing_ok=True)
+            self._write_heartbeat("idle")
 
     def _run_podman(self, command: list[str]) -> int:
         process = subprocess.Popen(  # noqa: S603 - fixed Podman binary, image, and arguments
@@ -150,6 +178,21 @@ class Dispatcher:
                 return 124
             time.sleep(0.1)
         return cast(int, process.returncode)
+
+    def _write_heartbeat(self, status: str) -> None:
+        state = self.spool / "state"
+        _require_directory(state)
+        _write_json(
+            state / HEARTBEAT_NAME,
+            {
+                "status": status,
+                "updated_at": datetime.now(UTC).isoformat(),
+                "runner_image_digest": self.runner_image[:19],
+                "jobs_claimed_total": self.jobs_claimed_total,
+                "last_completion_at": self.last_completion_at,
+                "last_error_code": self.last_error_code,
+            },
+        )
 
     @staticmethod
     def _write_terminal(
@@ -234,16 +277,31 @@ def _write_json(path: Path, value: dict[str, object]) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
+        os.chmod(path, 0o660)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _require_directory(path: Path) -> None:
+    mode = path.stat(follow_symlinks=False).st_mode
+    if not stat.S_ISDIR(mode) or path.is_symlink() or mode & stat.S_IRWXO:
+        raise ValueError("invalid spool directory")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--spool-root", type=Path, default=Path("/var/lib/cimasim-custom"))
+    parser.add_argument(
+        "--runner-image-id",
+        default=os.environ.get("CIMASIM_CUSTOM_RUNNER_IMAGE_ID", ""),
+    )
     parser.add_argument("--poll-seconds", type=float, default=2.0)
     args = parser.parse_args()
-    dispatcher = Dispatcher(args.spool_root, args.poll_seconds)
+    dispatcher = Dispatcher(
+        args.spool_root,
+        validate_runner_image_id(args.runner_image_id),
+        args.poll_seconds,
+    )
     signal.signal(signal.SIGTERM, dispatcher.request_stop)
     signal.signal(signal.SIGINT, dispatcher.request_stop)
     dispatcher.run()

@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     custom_job_spool_root: Path = Path("/custom-spool")
     custom_job_active_per_user_limit: int = 1
     custom_job_hourly_per_user_limit: int = 10
+    custom_dispatcher_heartbeat_ttl_seconds: int = 30
 
     @property
     def normalized_team_domain(self) -> str | None:

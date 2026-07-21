@@ -1,15 +1,18 @@
 import json
+import os
 from pathlib import Path
 
 import pytest
 
-from cimasim_custom_runner.dispatcher import RUNNER_IMAGE, Dispatcher, podman_command
+from cimasim_custom_runner.dispatcher import Dispatcher, podman_command, validate_runner_image_id
 from cimasim_custom_runner.results import ResultValidationError, validate_results
 from cimasim_custom_runner.runner import prepare_netlist
 
+RUNNER_IMAGE_ID = "sha256:" + "a" * 64
+
 
 def test_podman_command_is_fixed_and_isolated(tmp_path: Path) -> None:
-    command = podman_command(tmp_path / "input", tmp_path / "output", "tran")
+    command = podman_command(tmp_path / "input", tmp_path / "output", "tran", RUNNER_IMAGE_ID)
     joined = " ".join(command)
     assert command[0:3] == ["podman", "run", "--rm"]
     assert "--network=none" in command
@@ -20,9 +23,31 @@ def test_podman_command_is_fixed_and_isolated(tmp_path: Path) -> None:
     assert "--memory=1g" in command
     assert "--cpus=1" in command
     assert "--pids-limit=64" in command
-    assert RUNNER_IMAGE in command
+    assert RUNNER_IMAGE_ID in command
     assert "docker.sock" not in joined
     assert "--privileged" not in command
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "",
+        "localhost/cimasim-custom-runner:review",
+        "localhost/cimasim-custom-runner:fd34449",
+        "sha256:" + "a" * 63,
+        "sha256:" + "g" * 64,
+        "sha256:" + "a" * 64 + " --privileged",
+        " sha256:" + "a" * 64,
+        "sha256:" + "a" * 64 + "\n",
+    ],
+)
+def test_runner_image_must_be_full_sha256_id(value: str) -> None:
+    with pytest.raises(ValueError):
+        validate_runner_image_id(value)
+
+
+def test_runner_image_accepts_full_sha256_id() -> None:
+    assert validate_runner_image_id(RUNNER_IMAGE_ID) == RUNNER_IMAGE_ID
 
 
 def test_results_validate_shape_finite_and_axis(tmp_path: Path) -> None:
@@ -67,8 +92,10 @@ def test_runner_rejects_analysis_mismatch(tmp_path: Path) -> None:
 
 def prepare_claimed_job(root: Path) -> tuple[Path, Path]:
     job_id = "job_" + "a" * 32
-    for name in ("queued", "claimed", "jobs", "failed"):
-        (root / name).mkdir()
+    for name in ("queued", "claimed", "jobs", "state"):
+        path = root / name
+        path.mkdir()
+        os.chmod(path, 0o2770)  # noqa: S103 - mirrors group-only production spool mode
     job = root / "jobs" / job_id
     (job / "artifacts").mkdir(parents=True)
     (job / "request.json").write_text(
@@ -96,7 +123,7 @@ def test_dispatcher_writes_success_and_cleans_job_local_mounts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     job, marker = prepare_claimed_job(tmp_path)
-    dispatcher = Dispatcher(tmp_path)
+    dispatcher = Dispatcher(tmp_path, RUNNER_IMAGE_ID)
 
     def succeed(_command: list[str]) -> int:
         (job / "runner-output" / "results.csv").write_text(
@@ -112,13 +139,18 @@ def test_dispatcher_writes_success_and_cleans_job_local_mounts(
     assert not marker.exists()
     assert not (job / "runner-input").exists()
     assert not (job / "runner-output").exists()
+    heartbeat = json.loads((tmp_path / "state" / "dispatcher.json").read_text())
+    assert heartbeat["status"] == "idle"
+    assert heartbeat["runner_image_digest"] == RUNNER_IMAGE_ID[:19]
+    assert heartbeat["jobs_claimed_total"] == 0
+    assert heartbeat["last_error_code"] is None
 
 
 def test_dispatcher_records_timeout_and_does_not_execute_twice(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     job, marker = prepare_claimed_job(tmp_path)
-    dispatcher = Dispatcher(tmp_path)
+    dispatcher = Dispatcher(tmp_path, RUNNER_IMAGE_ID)
     calls = 0
 
     def time_out(_command: list[str]) -> int:
@@ -132,6 +164,8 @@ def test_dispatcher_records_timeout_and_does_not_execute_twice(
     assert calls == 1
     assert json.loads((job / "status.json").read_text())["status"] == "timed_out"
     assert json.loads((job / "summary.json").read_text())["error"] == "simulation_timeout"
+    heartbeat = json.loads((tmp_path / "state" / "dispatcher.json").read_text())
+    assert heartbeat["last_error_code"] == "simulation_timeout"
 
 
 @pytest.mark.parametrize(
