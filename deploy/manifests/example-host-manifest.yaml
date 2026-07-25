@@ -1,0 +1,59 @@
+# Example only. Replace every placeholder with values from the verified build.
+host_manifest_version: 1
+host_role: cimasim-apollo-single-host
+generated_at: "2026-07-25T00:00:00Z"
+source:
+  repository: ROMERUU-dev/apollo-simulation-server
+  commit_sha: "<COMMIT_SHA>"
+  branch: "<BRANCH_NAME>"
+components:
+  - name: cimasim-backend
+    version: "<VERSION>"
+    image: "cimasim-backend-api:<TAG>@sha256:<IMAGE_DIGEST>"
+    source_sha256: "<SOURCE_SHA256>"
+    config_sanitized_sha256: "<CONFIG_SHA256>"
+  - name: cimasim-preview
+    version: "<VERSION>"
+    image: "cimasim-preview-frontend:<TAG>@sha256:<IMAGE_DIGEST>"
+    source_sha256: "<SOURCE_SHA256>"
+    config_sanitized_sha256: "<CONFIG_SHA256>"
+  - name: cimasim-legacy-worker
+    version: "<VERSION>"
+    image: "cimasim-xyce-worker:<TAG>@sha256:<IMAGE_DIGEST>"
+    source_sha256: "<SOURCE_SHA256>"
+    config_sanitized_sha256: "<CONFIG_SHA256>"
+  - name: cimasim-custom-dispatcher
+    version: "<VERSION>"
+    wheel: "cimasim_custom_runner-<VERSION>-py3-none-any.whl"
+    wheel_sha256: "<WHEEL_SHA256>"
+    source_sha256: "<SOURCE_SHA256>"
+    systemd_unit: "cimasim-custom-dispatcher.service"
+    systemd_unit_sha256: "<UNIT_SHA256>"
+    config_sanitized_sha256: "<CONFIG_SHA256>"
+  - name: apollo
+    version: "<VERSION>"
+    images:
+      - "apollo_server-api:<TAG>@sha256:<IMAGE_DIGEST>"
+      - "apollo_server-storage:<TAG>@sha256:<IMAGE_DIGEST>"
+      - "apollo_server-mwl:<TAG>@sha256:<IMAGE_DIGEST>"
+    config_sanitized_sha256: "<CONFIG_SHA256>"
+  - name: rustdesk
+    version: "<VERSION>"
+    images:
+      - "rustdesk/rustdesk-server:<TAG>@sha256:<IMAGE_DIGEST>"
+    config_sanitized_sha256: "<CONFIG_SHA256>"
+  - name: monitoring
+    version: "<VERSION>"
+    images:
+      - "prom/prometheus:<TAG>@sha256:<IMAGE_DIGEST>"
+      - "grafana/grafana:<TAG>@sha256:<IMAGE_DIGEST>"
+      - "prom/node-exporter:<TAG>@sha256:<IMAGE_DIGEST>"
+    config_sanitized_sha256: "<CONFIG_SHA256>"
+policy:
+  reject_without_image_digest: true
+  reject_without_wheel_hash: true
+  reject_source_wheel_mismatch: true
+  reject_systemd_unit_mismatch: true
+  reject_mutable_tag_without_digest: true
+  custom_execution_default: false
+
