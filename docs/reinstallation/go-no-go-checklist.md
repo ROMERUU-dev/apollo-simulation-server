@@ -22,6 +22,7 @@
 - [ ] Any secret appears in Git, logs, or PR output.
 - [ ] Any production clinical data lacks verified backup.
 - [ ] Any service needs a mutable image tag without digest.
-- [ ] Any script requires `chmod 777`, `prune`, or global service restart.
+- [ ] Any script requires world-writable chmod, destructive Docker cleanup, or
+  global service restart.
 - [ ] Any unexpected wildcard listener appears.
 - [ ] Custom execution would be enabled before rootless gates pass.

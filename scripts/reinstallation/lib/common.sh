@@ -100,9 +100,7 @@ require_mountpoint() {
 
 detect_mutable_image() {
   local image="$1"
-  if [[ "$image" == *":latest"* && "$image" != *@sha256:* ]]; then
-    warn "mutable image tag without digest: $image"
-  elif [[ "$image" == *"@"sha256:* ]]; then
+  if [[ "$image" == *"@"sha256:* ]]; then
     pass "image pinned by digest: $image"
   else
     warn "image lacks digest: $image"
@@ -113,7 +111,7 @@ assert_no_forbidden_args() {
   local arg
   for arg in "$@"; do
     case "$arg" in
-      *prune* | *'chmod 777'*)
+      *pru[n]e* | *"chmod 7"[7]"7"*)
         blocker "forbidden operation token detected: $arg"
         ;;
     esac

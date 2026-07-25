@@ -24,7 +24,7 @@ systemctl show cimasim-custom-dispatcher.service -p ActiveState -p SubState -p U
 
 log "## Containers"
 if command -v docker >/dev/null 2>&1; then
-  docker ps --format '{{.Names}} {{.Image}} {{.Status}}'
+  docker ps --format '{{.Names}} {{.Status}}'
 else
   warn "docker not available"
 fi

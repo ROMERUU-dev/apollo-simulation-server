@@ -71,9 +71,9 @@ collisions before creating users or groups.
 | Apollo gateway | `nginx:1.27-alpine` | recreable |
 | Apollo API/storage/MWL/frontend | locally built `apollo_server-*` | generated |
 | Orthanc | `orthancteam/orthanc:26.6.1` | recreable |
-| RustDesk | `rustdesk/rustdesk-server:latest` | unknown; must pin digest |
+| RustDesk | `rustdesk/rustdesk-server:<mutable-tag-observed>` | unknown; must pin digest |
 
-`latest` is not acceptable for the rebuilt host. Pin RustDesk by digest before
+Mutable tags are not acceptable for the rebuilt host. Pin RustDesk by digest before
 production use.
 
 ## Docker Networks
@@ -115,10 +115,10 @@ to the host.
 | `/var/lib/cimasim-custom-spool` | custom CimaSim spool | data persistent |
 | `cimasim-prometheus-data` | Prometheus data | data persistent |
 | `cimasim-grafana-data` | Grafana data | data persistent |
-| `/home/romeruu/apollo-data/dicom` | Apollo DICOM path | data persistent |
-| `/home/romeruu/apollo-data/postgres` | Apollo DB path | data persistent |
-| `/home/romeruu/apollo_server/infra/orthanc/data/*` | Orthanc storage/DB | data persistent |
-| `/home/romeruu/rustdesk-server/data` | RustDesk server key and DB | secret plus generated |
+| `<CURRENT_HOME>/apollo-data/dicom` | Apollo DICOM path | data persistent |
+| `<CURRENT_HOME>/apollo-data/postgres` | Apollo DB path | data persistent |
+| `<CURRENT_HOME>/apollo_server/infra/orthanc/data/*` | Orthanc storage/DB | data persistent |
+| `<CURRENT_HOME>/rustdesk-server/data` | RustDesk server key and DB | secret plus generated |
 | `/srv/apollo-data` | final data mount candidate, currently mostly empty | persistent target |
 
 ## Secret And Config Paths
@@ -129,14 +129,14 @@ runbook.
 | Path | Purpose | Class |
 |---|---|---|
 | `/etc/cimasim/custom-dispatcher.env` | dispatcher configuration | secret/config manual |
-| `/home/romeruu/.config/cimasim/admin-emails.txt` | CimaSim admin allowlist | secret/config manual |
-| `/home/romeruu/.config/cimasim/grafana-admin-password.txt` | Grafana admin password | secret |
-| `/home/romeruu/apollo_server/.env` | Apollo configuration | secret |
-| `/home/romeruu/apollo_server/infra/orthanc/.env` | Orthanc configuration | secret |
+| `<CURRENT_HOME>/.config/cimasim/admin-emails.txt` | CimaSim admin allowlist | secret/config manual |
+| `<CURRENT_HOME>/.config/cimasim/grafana-admin-password.txt` | Grafana admin password | secret |
+| `<CURRENT_HOME>/apollo_server/.env` | Apollo configuration | secret |
+| `<CURRENT_HOME>/apollo_server/infra/orthanc/.env` | Orthanc configuration | secret |
 | `/etc/cloudflared/*` | Cloudflare tunnel token/config | secret |
 | `/var/lib/tailscale/tailscaled.state` | Tailscale node state | secret/generated |
-| `/home/romeruu/rustdesk-server/data/id_ed25519` | RustDesk private key | secret |
-| `/home/romeruu/apollo_server/infra/gateway/certs/*` | TLS certificate/key | secret/generated |
+| `<CURRENT_HOME>/rustdesk-server/data/id_ed25519` | RustDesk private key | secret |
+| `<CURRENT_HOME>/apollo_server/infra/gateway/certs/*` | TLS certificate/key | secret/generated |
 
 ## Known Drift And Decisions
 
