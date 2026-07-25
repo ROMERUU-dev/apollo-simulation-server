@@ -16,4 +16,3 @@ run_or_show true "install secrets with restrictive permissions"
 run_or_show true "remove temporary decrypted staging material"
 
 summary
-

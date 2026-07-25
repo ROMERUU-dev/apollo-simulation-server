@@ -51,4 +51,3 @@ Future installs must use immutable references:
 - Sanitized configuration SHA-256.
 
 See `deploy/manifests/example-host-manifest.yaml`.
-

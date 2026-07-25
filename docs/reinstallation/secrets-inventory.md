@@ -45,4 +45,3 @@ Required metadata outside the secret payload:
 - Directories containing secrets: no access for `other`.
 - Public keys and certificates may remain world-readable if they contain no
   private material.
-

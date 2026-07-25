@@ -26,4 +26,3 @@
 - manifest commit and artifact hashes;
 - service validation PASS;
 - operator sign-off.
-

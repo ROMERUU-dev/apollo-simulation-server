@@ -34,4 +34,3 @@ Rollback if any of these occur:
 3. Boot or reattach the previous disk.
 4. Restore previous network routing if it was changed.
 5. Re-run the short integrity audit.
-

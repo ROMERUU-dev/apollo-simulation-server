@@ -25,4 +25,3 @@
 - [ ] Any script requires `chmod 777`, `prune`, or global service restart.
 - [ ] Any unexpected wildcard listener appears.
 - [ ] Custom execution would be enabled before rootless gates pass.
-

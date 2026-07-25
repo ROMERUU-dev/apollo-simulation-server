@@ -28,4 +28,3 @@ environment. No backup artifact belongs in Git.
 - Record date, host, source commit, and checksum.
 - Test decryption before declaring a backup valid.
 - Do not include secrets, dumps, or checksums of secret content in Git.
-

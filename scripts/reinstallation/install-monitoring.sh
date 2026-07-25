@@ -16,4 +16,3 @@ run_or_show true "restore Grafana secret and provisioning files"
 run_or_show true "deploy Prometheus, Grafana, node exporter, and spool exporter"
 
 summary
-

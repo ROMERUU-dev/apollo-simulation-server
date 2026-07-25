@@ -22,4 +22,3 @@ log "Expected placeholders: <NVME_UUID> <APOLLO_DATA_UUID> <BACKUP_UUID>"
 run_or_show true "create mount points only after final disk UUIDs are known"
 
 summary
-

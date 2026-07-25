@@ -56,4 +56,3 @@ policy:
   reject_systemd_unit_mismatch: true
   reject_mutable_tag_without_digest: true
   custom_execution_default: false
-

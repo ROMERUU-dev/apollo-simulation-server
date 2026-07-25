@@ -67,4 +67,3 @@ In a clean VM, verify:
 - full host reboot;
 - persistence after reboot;
 - `verify-all` PASS.
-

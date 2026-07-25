@@ -24,4 +24,3 @@ run_or_show true "check Prometheus targets and Grafana health"
 run_or_show true "assert zero Xyce/orted and zero residual Podman containers"
 
 summary
-

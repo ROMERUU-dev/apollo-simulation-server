@@ -81,4 +81,3 @@ installed and SMART health is checked.
 | Btrfs mirror | checksums and snapshots | careful operational runbook |
 
 RAID or mirrors reduce some hardware-failure risk. They do not replace backup.
-

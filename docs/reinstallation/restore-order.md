@@ -26,4 +26,3 @@
 - Apollo should be rebuilt empty because no real clinical data is present.
 - Monitoring should start before the final CimaSim gate.
 - PR #15 remains draft until custom dispatcher provenance and idle gates pass.
-

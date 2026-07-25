@@ -17,4 +17,3 @@ run_or_show true "deploy Apollo Compose after secrets and storage pass preflight
 run_or_show true "run migrations into empty databases"
 
 summary
-

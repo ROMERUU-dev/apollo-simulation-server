@@ -176,4 +176,3 @@ summary() {
   fi
   printf 'SUMMARY PASS=%d WARN=%d BLOCKER=%d RESULT=PASS\n' "$STATUS_PASS" "$STATUS_WARN" "$STATUS_BLOCKER"
 }
-

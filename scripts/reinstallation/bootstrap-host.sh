@@ -20,4 +20,3 @@ run_or_show true "create service users only after collision checks pass"
 run_or_show true "restore encrypted secrets outside Git"
 
 summary
-
