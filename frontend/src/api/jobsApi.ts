@@ -194,6 +194,9 @@ function parseSummary(value: unknown): JobSummary | null {
     }
     summary.columns = value.columns as string[] | null
   }
+  if ('temperature_celsius' in value) {
+    summary.temperature_celsius = nullableFiniteNumber(value.temperature_celsius)
+  }
   return summary
 }
 
@@ -355,6 +358,8 @@ export async function preflightCustomJob(
     body.valid !== true ||
     !['tran', 'dc', 'ac'].includes(body.analysis as string) ||
     !Array.isArray(body.outputs) ||
+    typeof body.temperature_celsius !== 'number' ||
+    !Number.isFinite(body.temperature_celsius) ||
     typeof body.sandbox_ready !== 'boolean'
   ) {
     throw new ApiError('La API devolvió un preflight inválido.', 'invalid-json')

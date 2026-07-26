@@ -28,6 +28,7 @@ const preflight = {
   models: 0,
   subcircuits: 0,
   outputs: ['V(in)', 'V(out)'],
+  temperature_celsius: 25,
   sandbox_ready: true,
 }
 
@@ -105,6 +106,7 @@ describe('custom Xyce simulation', () => {
     expect(payload).toMatchObject({
       template_id: 'custom_xyce_netlist_v1',
       requested_outputs: ['V(in)', 'V(out)'],
+      temperature_celsius: 25,
     })
     expect(payload.netlist).toContain('.TRAN 1u 5m')
     expect(init?.headers).not.toHaveProperty('Authorization')

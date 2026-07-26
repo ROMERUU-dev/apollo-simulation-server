@@ -13,12 +13,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final, cast
 
+from cimasim_custom_runner import __version__
 from cimasim_custom_runner.results import validate_results
 from cimasim_custom_runner.validation import revalidate
 
 JOB_RE: Final = re.compile(r"^job_[0-9a-f]{32}$")
 RUNNER_IMAGE_ID_RE: Final = re.compile(r"^sha256:[0-9a-f]{64}$")
 HEARTBEAT_NAME: Final = "dispatcher.json"
+REQUIRED_SPOOL_DIRS: Final = ("jobs", "queued", "claimed", "state")
 
 
 def validate_runner_image_id(value: str) -> str:
@@ -67,6 +69,7 @@ class Dispatcher:
         self.stopping = True
 
     def run(self) -> None:
+        validate_spool_root(self.spool)
         self._write_heartbeat("idle")
         while not self.stopping:
             marker = self._claim()
@@ -112,10 +115,10 @@ class Dispatcher:
             request = _read_request(job / "request.json", job_id)
             analysis = str(request["analysis"])
             self._write_heartbeat("running")
-            input_dir.mkdir(mode=0o2770, exist_ok=False)
-            output_dir.mkdir(mode=0o2770, exist_ok=False)
-            os.chmod(input_dir, 0o2770)  # noqa: S103 - group-only setgid spool directory
-            os.chmod(output_dir, 0o2770)  # noqa: S103 - group-only setgid spool directory
+            input_dir.mkdir(mode=0o770, exist_ok=False)
+            output_dir.mkdir(mode=0o770, exist_ok=False)
+            os.chmod(input_dir, 0o770)  # noqa: S103 - job-local runner mount, no setgid
+            os.chmod(output_dir, 0o770)  # noqa: S103 - job-local runner mount, no setgid
             netlist = input_dir / "netlist.cir"
             netlist.write_text(cast(str, request["netlist"]), encoding="utf-8")
             os.chmod(netlist, 0o640)
@@ -186,8 +189,9 @@ class Dispatcher:
             state / HEARTBEAT_NAME,
             {
                 "status": status,
+                "version": __version__,
                 "updated_at": datetime.now(UTC).isoformat(),
-                "runner_image_digest": self.runner_image[:19],
+                "runner_image_id": self.runner_image,
                 "jobs_claimed_total": self.jobs_claimed_total,
                 "last_completion_at": self.last_completion_at,
                 "last_error_code": self.last_error_code,
@@ -233,6 +237,7 @@ class Dispatcher:
                     else "simulation_failed"
                 ),
                 "columns": columns,
+                "temperature_celsius": request.get("temperature_celsius"),
                 "artifacts": artifacts,
             },
         )
@@ -244,12 +249,22 @@ def _read_request(path: Path, job_id: str) -> dict[str, object]:
     if not stat.S_ISREG(info.st_mode) or info.st_size > 128 * 1024:
         raise ValueError("invalid request")
     value = json.loads(path.read_text(encoding="utf-8"))
-    required = {"job_id", "user_id", "template_id", "netlist", "requested_outputs", "created_at"}
+    required = {
+        "job_id",
+        "user_id",
+        "template_id",
+        "netlist",
+        "requested_outputs",
+        "temperature_celsius",
+        "created_at",
+    }
     if not isinstance(value, dict) or not required <= value.keys():
         raise ValueError("invalid request")
     if value["job_id"] != job_id or value["template_id"] != "custom_xyce_netlist_v1":
         raise ValueError("invalid request")
     if not isinstance(value["netlist"], str) or not isinstance(value["requested_outputs"], list):
+        raise ValueError("invalid request")
+    if not isinstance(value["temperature_celsius"], (int, float)):
         raise ValueError("invalid request")
     value["analysis"] = revalidate(value["netlist"], value["requested_outputs"])
     return value
@@ -283,13 +298,23 @@ def _write_json(path: Path, value: dict[str, object]) -> None:
 
 
 def _require_directory(path: Path) -> None:
-    mode = path.stat(follow_symlinks=False).st_mode
+    try:
+        mode = path.stat(follow_symlinks=False).st_mode
+    except OSError as exc:
+        raise ValueError("invalid spool directory") from exc
     if not stat.S_ISDIR(mode) or path.is_symlink() or mode & stat.S_IRWXO:
         raise ValueError("invalid spool directory")
 
 
+def validate_spool_root(path: Path) -> None:
+    _require_directory(path)
+    for name in REQUIRED_SPOOL_DIRS:
+        _require_directory(path / name)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--spool-root", type=Path, default=Path("/var/lib/cimasim-custom"))
     parser.add_argument(
         "--runner-image-id",

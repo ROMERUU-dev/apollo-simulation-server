@@ -107,6 +107,8 @@ class JobStore:
             stored_data["netlist"] = request.netlist
         if request.requested_outputs is not None:
             stored_data["requested_outputs"] = request.requested_outputs
+        if request.temperature_celsius is not None:
+            stored_data["temperature_celsius"] = request.temperature_celsius
         stored = StoredJobRequest.model_validate(stored_data)
         status = JobStatus(
             job_id=job_id,
@@ -122,6 +124,8 @@ class JobStore:
             stored_data.pop("netlist")
         if stored.requested_outputs is None:
             stored_data.pop("requested_outputs")
+        if stored.temperature_celsius is None:
+            stored_data.pop("temperature_celsius")
         _atomic_write_json(job_dir / "request.json", stored_data)
         _atomic_write_json(job_dir / "status.json", status.model_dump(mode="json"))
         _atomic_write_json(self.root / "queued" / f"{job_id}.json", {"job_id": job_id})
@@ -254,6 +258,8 @@ def _body_hash(request: JobCreateRequest) -> str:
         payload["netlist"] = request.netlist
     if request.requested_outputs is not None:
         payload["requested_outputs"] = request.requested_outputs
+    if request.temperature_celsius is not None:
+        payload["temperature_celsius"] = request.temperature_celsius
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
     return hashlib.sha256(raw).hexdigest()
 

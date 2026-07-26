@@ -37,12 +37,20 @@ function localError(name: string, netlist: string, outputs: string[]): string | 
   return null
 }
 
+function temperatureError(value: number): string | null {
+  if (!Number.isFinite(value) || value < -100 || value > 200) {
+    return 'La temperatura debe estar entre -100 y 200 C.'
+  }
+  return null
+}
+
 export default function NewSimulationPage() {
   const navigate = useNavigate()
   const { health, refreshHealth } = useSession()
   const [name, setName] = useState('Simulación Xyce personalizada')
   const [netlist, setNetlist] = useState(DEFAULT_NETLIST)
   const [outputsText, setOutputsText] = useState('V(in), V(out)')
+  const [temperatureCelsius, setTemperatureCelsius] = useState(25)
   const [preflight, setPreflight] = useState<NetlistPreflight | null>(null)
   const [validating, setValidating] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -58,6 +66,7 @@ export default function NewSimulationPage() {
     [outputsText],
   )
   const validationError = localError(name, netlist, outputs)
+  const tempError = temperatureError(temperatureCelsius)
   const available = health?.features.custom_netlists === 'available'
   const lineCount = netlist.replaceAll('\r\n', '\n').split('\n').length
   const bytes = new TextEncoder().encode(netlist).byteLength
@@ -68,8 +77,9 @@ export default function NewSimulationPage() {
       template_id: CUSTOM_XYCE_TEMPLATE_ID,
       netlist,
       requested_outputs: outputs,
+      temperature_celsius: temperatureCelsius,
     }),
-    [name, netlist, outputs],
+    [name, netlist, outputs, temperatureCelsius],
   )
 
   function changeNetlist(value: string) {
@@ -79,7 +89,7 @@ export default function NewSimulationPage() {
   }
 
   async function validate() {
-    if (validationError || validating) return
+    if (validationError || tempError || validating) return
     setValidating(true)
     setError(null)
     try {
@@ -93,7 +103,7 @@ export default function NewSimulationPage() {
   }
 
   async function execute() {
-    if (busy.current || validationError || !available || !preflight) return
+    if (busy.current || validationError || tempError || !available || !preflight) return
     busy.current = true
     setSubmitting(true)
     setError(null)
@@ -169,9 +179,23 @@ export default function NewSimulationPage() {
               }}
             />
           </label>
-          {validationError && (
+          <label className="fixed-job-field">
+            <span>Temperatura (C)</span>
+            <input
+              type="number"
+              min={-100}
+              max={200}
+              step={1}
+              value={temperatureCelsius}
+              onChange={(event) => {
+                setTemperatureCelsius(Number(event.target.value))
+                setPreflight(null)
+              }}
+            />
+          </label>
+          {(validationError || tempError) && (
             <p className="fixed-job-error" role="alert">
-              {validationError}
+              {validationError ?? tempError}
             </p>
           )}
           {error && (
@@ -196,6 +220,8 @@ export default function NewSimulationPage() {
                 <dd>{preflight.subcircuits}</dd>
                 <dt>Outputs</dt>
                 <dd>{preflight.outputs.length}</dd>
+                <dt>Temperatura</dt>
+                <dd>{preflight.temperature_celsius} C</dd>
               </dl>
             </div>
           )}
@@ -203,7 +229,7 @@ export default function NewSimulationPage() {
             <button
               type="button"
               className="fixed-job-secondary-button"
-              disabled={Boolean(validationError) || validating}
+              disabled={Boolean(validationError || tempError) || validating}
               onClick={() => void validate()}
             >
               {validating ? <RefreshCw size={16} className="spin" /> : <ShieldCheck size={16} />}{' '}

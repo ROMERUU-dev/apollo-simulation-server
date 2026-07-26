@@ -38,13 +38,25 @@ C1 out 0 1u
 .END
 """
 
+MOS_TRAN = """* bounded nmos transient
+VDD vdd 0 DC 5
+VIN gate 0 PULSE(0 5 0 1n 1n 10n 20n)
+M1 out gate 0 0 NMOS_THESIS L=1u W=10u
+RLOAD vdd out 10k
+CLOAD out 0 1p
+.MODEL NMOS_THESIS NMOS (LEVEL=1 VTO=0.7 KP=120u LAMBDA=0.02)
+.TRAN 0.1n 80n
+.END
+"""
+
 
 @pytest.mark.parametrize(("netlist", "analysis"), [(TRAN, "tran"), (DC, "dc"), (AC, "ac")])
 def test_parses_supported_analyses_and_replaces_print(netlist: str, analysis: str) -> None:
-    parsed = parse_netlist(netlist, ["V(out)"])
+    parsed = parse_netlist(netlist, ["V(out)"], 25.0)
     assert parsed.analysis == analysis
     assert parsed.outputs == ("V(out)",)
     assert parsed.normalized.count(".PRINT") == 1
+    assert ".OPTIONS DEVICE TEMP=25" in parsed.normalized
     assert "FORMAT=CSV" in parsed.normalized
     if analysis == "dc":
         assert ".PRINT DC FORMAT=CSV V1 V(out)" in parsed.normalized
@@ -60,17 +72,51 @@ def test_parses_supported_analyses_and_replaces_print(netlist: str, analysis: st
         ".PLUGIN bad",
         ".UNKNOWN value",
         ".OPTIONS OUTPUT FILE=leak",
+        ".TEMP 25",
     ],
 )
 def test_blocks_file_control_plugin_and_unknown_directives(line: str) -> None:
     with pytest.raises(NetlistValidationError):
-        parse_netlist(f"* test\nR1 a 0 1k\n{line}\n.TRAN 1u 1m\n.END\n", ["V(a)"])
+        parse_netlist(f"* test\nR1 a 0 1k\n{line}\n.TRAN 1u 1m\n.END\n", ["V(a)"], 25.0)
 
 
 @pytest.mark.parametrize("token", ["../../etc/passwd", "/root/out", "file://host/a", "a\\b"])
 def test_blocks_paths(token: str) -> None:
     with pytest.raises(NetlistValidationError):
-        parse_netlist(f"* test\nR1 a 0 {token}\n.TRAN 1u 1m\n.END\n", ["V(a)"])
+        parse_netlist(f"* test\nR1 a 0 {token}\n.TRAN 1u 1m\n.END\n", ["V(a)"], 25.0)
+
+
+def test_parses_inline_mosfet_model_and_current_output() -> None:
+    parsed = parse_netlist(MOS_TRAN, ["V(out)", "I(VDD)"], -40.0)
+    assert parsed.models == 1
+    assert parsed.devices == 5
+    assert ".MODEL NMOS_THESIS NMOS" in parsed.normalized
+    assert ".OPTIONS DEVICE TEMP=-40" in parsed.normalized
+    assert ".PRINT TRAN FORMAT=CSV V(out) I(VDD)" in parsed.normalized
+
+
+@pytest.mark.parametrize(
+    "model_line",
+    [
+        ".MODEL 1BAD NMOS (LEVEL=1 VTO=0.7 KP=120u)",
+        ".MODEL NMOS_THESIS PMOSX (LEVEL=1 VTO=0.7 KP=120u)",
+        ".MODEL NMOS_THESIS NMOS (LEVEL=1 VTO=0.7 UNKNOWN=1)",
+        ".MODEL NMOS_THESIS NMOS (" + " ".join(f"VTO{i}=0.7" for i in range(40)) + ")",
+        ".MODEL NMOS_THESIS NMOS (LEVEL=1 VTO=nan KP=120u)",
+    ],
+)
+def test_rejects_unsafe_model_definitions(model_line: str) -> None:
+    netlist = MOS_TRAN.replace(
+        ".MODEL NMOS_THESIS NMOS (LEVEL=1 VTO=0.7 KP=120u LAMBDA=0.02)", model_line
+    )
+    with pytest.raises(NetlistValidationError):
+        parse_netlist(netlist, ["V(out)"], 25.0)
+
+
+@pytest.mark.parametrize("temperature", [-101.0, 201.0, float("nan"), float("inf")])
+def test_rejects_invalid_structured_temperature(temperature: float) -> None:
+    with pytest.raises(NetlistValidationError):
+        parse_netlist(TRAN, ["V(out)"], temperature)
 
 
 def test_comments_continuations_models_subcircuits_and_parameters() -> None:
@@ -108,6 +154,7 @@ def test_contract_is_exact_and_custom_is_normalized() -> None:
                 "template_id": "custom_xyce_netlist_v1",
                 "netlist": TRAN,
                 "requested_outputs": ["V(out)"],
+                "temperature_celsius": 25.0,
                 "command": "bad",
             }
         )
@@ -118,6 +165,7 @@ def test_contract_is_exact_and_custom_is_normalized() -> None:
                 "template_id": "custom_xyce_netlist_v1",
                 "netlist": TRAN,
                 "requested_outputs": ["V(out)"],
+                "temperature_celsius": 25.0,
                 "parameters": None,
             }
         )
@@ -165,6 +213,7 @@ def test_flags_block_legacy_and_custom_submission(
                 "template_id": "custom_xyce_netlist_v1",
                 "netlist": TRAN,
                 "requested_outputs": ["V(out)"],
+                "temperature_celsius": 25.0,
             },
             headers=token,
         )
@@ -196,6 +245,7 @@ def test_custom_creation_uses_separate_spool(
                 "template_id": "custom_xyce_netlist_v1",
                 "netlist": TRAN,
                 "requested_outputs": ["V(out)"],
+                "temperature_celsius": 25.0,
             },
             headers=auth_headers(make_token(key_material)),
         )
@@ -205,6 +255,8 @@ def test_custom_creation_uses_separate_spool(
     manifest = json.loads((tmp_path / "custom" / "jobs" / job_id / "request.json").read_text())
     assert manifest["template_id"] == "custom_xyce_netlist_v1"
     assert ".PRINT TRAN FORMAT=CSV V(out)" in manifest["netlist"]
+    assert manifest["temperature_celsius"] == 25.0
+    assert ".OPTIONS DEVICE TEMP=25" in manifest["netlist"]
 
 
 @hypothesis_settings(max_examples=100, deadline=100)

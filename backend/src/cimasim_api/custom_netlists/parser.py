@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 from typing import Final, Literal
@@ -10,6 +11,8 @@ MAX_LINE_CHARS: Final = 512
 MAX_DEVICES: Final = 512
 MAX_NODES: Final = 256
 MAX_MODELS: Final = 64
+MAX_MODEL_PARAMS: Final = 32
+MAX_MODEL_NAME_CHARS: Final = 64
 MAX_SUBCIRCUITS: Final = 32
 MAX_SUBCIRCUIT_DEPTH: Final = 8
 MAX_OUTPUTS: Final = 64
@@ -35,6 +38,41 @@ BLOCKED_DIRECTIVES: Final = frozenset(
     {".INCLUDE", ".INC", ".LIB", ".CONTROL", ".ENDC", ".LOAD", ".PLUGIN", ".PREPROCESS", ".DATA"}
 )
 SAFE_OPTIONS: Final = frozenset({"TIMEINT", "NONLIN"})
+MODEL_FAMILIES: Final = frozenset({"NMOS", "PMOS"})
+MODEL_PARAMS: Final = frozenset(
+    {
+        "CBD",
+        "CBS",
+        "CGBO",
+        "CGDO",
+        "CGSO",
+        "CJ",
+        "CJSW",
+        "FC",
+        "GAMMA",
+        "IS",
+        "JS",
+        "KP",
+        "LAMBDA",
+        "LD",
+        "LEVEL",
+        "MJ",
+        "MJSW",
+        "NSUB",
+        "NSS",
+        "PB",
+        "PHI",
+        "RD",
+        "RS",
+        "TOX",
+        "TPG",
+        "UO",
+        "VTO",
+        "WD",
+        "XJ",
+    }
+)
+MODEL_NAME_RE: Final = re.compile(r"^[A-Za-z][A-Za-z0-9_.$:+-]{0,63}$")
 OUTPUT_RE: Final = re.compile(
     r"^(?:V\([A-Za-z0-9_.$:+-]+(?:,[A-Za-z0-9_.$:+-]+)?\)|"
     r"I\([A-Za-z0-9_.$:+-]+\))$",
@@ -67,10 +105,15 @@ class ParsedNetlist:
     models: int
     subcircuits: int
     outputs: tuple[str, ...]
+    temperature_celsius: float | None
     statements: tuple[Statement, ...]
 
 
-def parse_netlist(netlist: str, requested_outputs: list[str]) -> ParsedNetlist:
+def parse_netlist(
+    netlist: str,
+    requested_outputs: list[str],
+    temperature_celsius: float | None = None,
+) -> ParsedNetlist:
     if not isinstance(netlist, str):
         raise NetlistValidationError("NETLIST_TYPE")
     try:
@@ -84,9 +127,10 @@ def parse_netlist(netlist: str, requested_outputs: list[str]) -> ParsedNetlist:
     statements: list[Statement] = []
     analyses: list[str] = []
     nodes: set[str] = set()
-    device_count = model_count = subckt_count = depth = 0
+    device_count = model_count = subckt_count = depth = temp_count = 0
     dc_axis: str | None = None
     normalized_lines: list[str] = []
+    requested_temp = _validate_temperature(temperature_celsius)
 
     for line_number, text in logical:
         tokens = _tokenize(text, line_number)
@@ -105,6 +149,7 @@ def parse_netlist(netlist: str, requested_outputs: list[str]) -> ParsedNetlist:
                     dc_axis = tokens[1]
             elif upper == ".MODEL":
                 model_count += 1
+                _validate_model(tokens, line_number)
             elif upper == ".SUBCKT":
                 subckt_count += 1
                 depth += 1
@@ -118,7 +163,12 @@ def parse_netlist(netlist: str, requested_outputs: list[str]) -> ParsedNetlist:
                 if depth < 0:
                     raise NetlistValidationError("SUBCIRCUIT_STRUCTURE", line_number)
             elif upper == ".OPTIONS":
-                if len(tokens) < 2 or tokens[1].upper() not in SAFE_OPTIONS:
+                if _is_temperature_option(tokens):
+                    temp_count += 1
+                    if requested_temp is not None:
+                        raise NetlistValidationError("TEMP_INLINE_BLOCKED", line_number)
+                    _validate_temp_option(tokens, line_number)
+                elif len(tokens) < 2 or tokens[1].upper() not in SAFE_OPTIONS:
                     raise NetlistValidationError("OPTION_BLOCKED", line_number)
             statements.append(Statement(line_number, upper, tuple(tokens)))
             if upper != ".PRINT":
@@ -137,6 +187,8 @@ def parse_netlist(netlist: str, requested_outputs: list[str]) -> ParsedNetlist:
 
     if len(analyses) != 1:
         raise NetlistValidationError("ANALYSIS_COUNT")
+    if temp_count > 1:
+        raise NetlistValidationError("TEMP_COUNT")
     if depth != 0:
         raise NetlistValidationError("SUBCIRCUIT_STRUCTURE")
     if device_count > MAX_DEVICES or len(nodes) > MAX_NODES:
@@ -145,6 +197,8 @@ def parse_netlist(netlist: str, requested_outputs: list[str]) -> ParsedNetlist:
         raise NetlistValidationError("DEFINITION_LIMIT")
     if not normalized_lines or normalized_lines[-1].upper() != ".END":
         raise NetlistValidationError("END_REQUIRED")
+    if requested_temp is not None:
+        normalized_lines.insert(-1, f".OPTIONS DEVICE TEMP={_format_temperature(requested_temp)}")
     printed = ((dc_axis,) if analyses[0] == "dc" and dc_axis else ()) + outputs
     normalized_lines.insert(-1, f".PRINT {analyses[0].upper()} FORMAT=CSV " + " ".join(printed))
     return ParsedNetlist(
@@ -155,6 +209,7 @@ def parse_netlist(netlist: str, requested_outputs: list[str]) -> ParsedNetlist:
         models=model_count,
         subcircuits=subckt_count,
         outputs=outputs,
+        temperature_celsius=requested_temp,
         statements=tuple(statements),
     )
 
@@ -229,3 +284,96 @@ def _validate_outputs(outputs: list[str]) -> tuple[str, ...]:
         seen.add(key)
         normalized.append(output)
     return tuple(normalized)
+
+
+def _validate_temperature(value: float | None) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise NetlistValidationError("TEMPERATURE_INVALID")
+    numeric = float(value)
+    if not math.isfinite(numeric) or not -100.0 <= numeric <= 200.0:
+        raise NetlistValidationError("TEMPERATURE_INVALID")
+    return numeric
+
+
+def _format_temperature(value: float) -> str:
+    return format(value, ".12g")
+
+
+def _is_temperature_option(tokens: list[str]) -> bool:
+    return (
+        len(tokens) == 3
+        and tokens[0].upper() == ".OPTIONS"
+        and tokens[1].upper() == "DEVICE"
+        and tokens[2].upper().startswith("TEMP=")
+    )
+
+
+def _validate_temp_option(tokens: list[str], line: int) -> None:
+    if not _is_temperature_option(tokens):
+        raise NetlistValidationError("TEMP_SYNTAX", line)
+    _name, _separator, raw = tokens[2].partition("=")
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise NetlistValidationError("TEMP_SYNTAX", line) from exc
+    if not math.isfinite(value) or not -100.0 <= value <= 200.0:
+        raise NetlistValidationError("TEMP_SYNTAX", line)
+
+
+def _validate_model(tokens: list[str], line: int) -> None:
+    if len(tokens) < 4:
+        raise NetlistValidationError("MODEL_SYNTAX", line)
+    if not MODEL_NAME_RE.fullmatch(tokens[1]) or len(tokens[1]) > MAX_MODEL_NAME_CHARS:
+        raise NetlistValidationError("MODEL_NAME", line)
+    if tokens[2].upper() not in MODEL_FAMILIES:
+        raise NetlistValidationError("MODEL_FAMILY", line)
+    params = _model_params(tokens[3:])
+    if not 1 <= len(params) <= MAX_MODEL_PARAMS:
+        raise NetlistValidationError("MODEL_PARAMS", line)
+    seen: set[str] = set()
+    for name, value in params:
+        upper = name.upper()
+        if upper in seen or upper not in MODEL_PARAMS:
+            raise NetlistValidationError("MODEL_PARAM", line)
+        seen.add(upper)
+        _validate_model_value(value, line)
+
+
+def _model_params(tokens: list[str]) -> list[tuple[str, str]]:
+    result: list[tuple[str, str]] = []
+    for token in tokens:
+        item = token.strip()
+        while item.startswith("("):
+            item = item[1:]
+        while item.endswith(")"):
+            item = item[:-1]
+        if not item:
+            continue
+        name, separator, value = item.partition("=")
+        if not separator:
+            raise NetlistValidationError("MODEL_PARAM")
+        result.append((name, value))
+    return result
+
+
+def _validate_model_value(value: str, line: int) -> None:
+    if not value or len(value) > 64 or any(char in value for char in "{}?<>!&|%"):
+        raise NetlistValidationError("MODEL_VALUE", line)
+    try:
+        numeric = float(_strip_spice_suffix(value))
+    except ValueError as exc:
+        raise NetlistValidationError("MODEL_VALUE", line) from exc
+    if not math.isfinite(numeric):
+        raise NetlistValidationError("MODEL_VALUE", line)
+
+
+def _strip_spice_suffix(value: str) -> str:
+    lowered = value.lower()
+    for suffix in ("meg", "mil"):
+        if lowered.endswith(suffix):
+            return value[: -len(suffix)]
+    if lowered[-1:] in {"t", "g", "k", "m", "u", "n", "p", "f", "a"}:
+        return value[:-1]
+    return value

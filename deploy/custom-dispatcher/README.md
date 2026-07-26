@@ -46,20 +46,29 @@ install -o root -g cimasim-runner -m 0640 custom-dispatcher.env /etc/cimasim/cus
 
 ## Service
 
-Install the wheel into a root-owned virtual environment:
+Build the wheel and provenance manifest from the exact repository HEAD:
 
 ```sh
-python3 -m venv /opt/cimasim/custom-dispatcher
-/opt/cimasim/custom-dispatcher/bin/python -m pip install ./cimasim_custom_runner-*.whl
-install -o root -g root -m 0644 cimasim-custom-dispatcher.service /etc/systemd/system/cimasim-custom-dispatcher.service
-systemd-analyze verify /etc/systemd/system/cimasim-custom-dispatcher.service
+scripts/custom-dispatcher-build-provenance.sh
+```
+
+The manifest records the commit SHA, source archive SHA-256, wheel SHA-256, and
+systemd unit SHA-256. The installer refuses to continue if any recorded hash does
+not match.
+
+Install the verified wheel into a root-owned virtual environment:
+
+```sh
+scripts/install-verified-custom-dispatcher.sh custom_runner/dist/cimasim-custom-dispatcher-<sha>.manifest
 systemctl daemon-reload
-systemctl enable --now cimasim-custom-dispatcher.service
+systemctl start cimasim-custom-dispatcher.service
 ```
 
 The service runs as `cimasim-runner`, writes only the custom spool, the runner
 home, and `/run/user/997`, and publishes a sanitized heartbeat at
 `state/dispatcher.json`.
+
+Do not enable the service until the 120-second idle gate passes.
 
 ## Disabled staging
 

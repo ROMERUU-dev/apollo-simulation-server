@@ -74,6 +74,9 @@ def preflight(
         models=parsed.models,
         subcircuits=parsed.subcircuits,
         outputs=list(parsed.outputs),
+        temperature_celsius=(
+            25.0 if request.temperature_celsius is None else request.temperature_celsius
+        ),
         sandbox_ready=settings.custom_netlists_enabled,
     )
 

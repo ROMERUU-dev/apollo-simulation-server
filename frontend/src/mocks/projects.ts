@@ -1,7 +1,7 @@
 import type { Project } from '../types'
 
 const thermalOscillatorNetlist = `* Oscilador termico con MOSFET de potencia
-.TEMP 27
+.OPTIONS DEVICE TEMP=27
 VDD vdd 0 DC 12
 M1 out gate vdd vdd PMOS_POWER W=500u L=0.5u
 M2 out gate 0 0 NMOS_POWER W=250u L=0.5u

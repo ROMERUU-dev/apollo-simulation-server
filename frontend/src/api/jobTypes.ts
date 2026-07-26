@@ -37,6 +37,7 @@ export interface JobSummary {
   derived?: DerivedMetrics | null
   analysis?: 'tran' | 'dc' | 'ac' | null
   columns?: string[] | null
+  temperature_celsius?: number | null
 }
 
 export interface Job {
@@ -74,6 +75,7 @@ export interface CustomJobCreateRequest {
   template_id: typeof CUSTOM_XYCE_TEMPLATE_ID
   netlist: string
   requested_outputs: string[]
+  temperature_celsius: number
 }
 
 export interface NetlistPreflight {
@@ -84,6 +86,7 @@ export interface NetlistPreflight {
   models: number
   subcircuits: number
   outputs: string[]
+  temperature_celsius: number
   sandbox_ready: boolean
 }
 

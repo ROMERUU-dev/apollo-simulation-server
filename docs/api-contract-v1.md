@@ -334,15 +334,20 @@ Errors:
   "name": "Custom transient",
   "template_id": "custom_xyce_netlist_v1",
   "netlist": "V1 in 0 1\nR1 in out 1k\n.TRAN 1u 1m\n.END\n",
-  "requested_outputs": ["V(out)"]
+  "requested_outputs": ["V(out)"],
+  "temperature_celsius": 25
 }
 ```
 
-The schema has no additional fields. The netlist is UTF-8, at most 64 KiB,
-2,000 lines, and 512 characters per line. It permits exactly one `.TRAN`, `.DC`,
-or `.AC` analysis and the bounded syntax in
-`docs/custom-netlist-supported-syntax.md`. The backend normalizes one controlled
-`.PRINT`; the isolated runner selects Xyce, timeout, paths, and output format.
+The schema has no additional fields. `temperature_celsius` is a finite JSON
+number from `-100` through `200`; strings, units, expressions, `NaN`, and
+`Infinity` are rejected. If omitted in this phase, it defaults to `25`.
+
+The netlist is UTF-8, at most 64 KiB, 2,000 lines, and 512 characters per line.
+It permits exactly one `.TRAN`, `.DC`, or `.AC` analysis and the bounded syntax
+in `docs/custom-netlist-supported-syntax.md`. The backend normalizes one
+controlled `.PRINT` and inserts one controlled `.OPTIONS DEVICE TEMP=<C>`;
+the isolated runner selects Xyce, timeout, paths, and output format.
 
 `POST /api/jobs/preflight` accepts the same authenticated custom body and
 returns only analysis, bounded topology counts, requested outputs, and whether

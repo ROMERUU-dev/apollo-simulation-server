@@ -68,7 +68,8 @@ def test_runner_adds_only_the_fixed_internal_output_path(tmp_path: Path) -> None
     output = tmp_path / "output" / "results.csv"
     output.parent.mkdir()
     source.write_text(
-        "V1 in 0 1\nR1 in out 1k\n.TRAN 1u 1m\n.PRINT TRAN FORMAT=CSV V(out)\n.END\n",
+        "V1 in 0 1\nR1 in out 1k\n.OPTIONS DEVICE TEMP=25\n"
+        ".TRAN 1u 1m\n.PRINT TRAN FORMAT=CSV V(out)\n.END\n",
         encoding="utf-8",
     )
     assert prepare_netlist(source, prepared, output, "tran") == "tran"
@@ -83,7 +84,8 @@ def test_runner_rejects_analysis_mismatch(tmp_path: Path) -> None:
     output = tmp_path / "output" / "results.csv"
     output.parent.mkdir()
     source.write_text(
-        "V1 in 0 1\nR1 in out 1k\n.TRAN 1u 1m\n.PRINT TRAN FORMAT=CSV V(out)\n.END\n",
+        "V1 in 0 1\nR1 in out 1k\n.OPTIONS DEVICE TEMP=25\n"
+        ".TRAN 1u 1m\n.PRINT TRAN FORMAT=CSV V(out)\n.END\n",
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="analysis mismatch"):
@@ -106,9 +108,11 @@ def prepare_claimed_job(root: Path) -> tuple[Path, Path]:
                 "name": "Custom",
                 "template_id": "custom_xyce_netlist_v1",
                 "netlist": (
-                    "V1 in 0 1\nR1 in out 1k\n.TRAN 1u 1m\n.PRINT TRAN FORMAT=CSV V(out)\n.END\n"
+                    "V1 in 0 1\nR1 in out 1k\n.OPTIONS DEVICE TEMP=25\n"
+                    ".TRAN 1u 1m\n.PRINT TRAN FORMAT=CSV V(out)\n.END\n"
                 ),
                 "requested_outputs": ["V(out)"],
+                "temperature_celsius": 25.0,
                 "created_at": "2026-07-20T00:00:00+00:00",
             }
         ),
@@ -135,13 +139,14 @@ def test_dispatcher_writes_success_and_cleans_job_local_mounts(
     dispatcher._execute(marker)
     assert json.loads((job / "status.json").read_text())["status"] == "succeeded"
     assert json.loads((job / "summary.json").read_text())["samples"] == 2
+    assert json.loads((job / "summary.json").read_text())["temperature_celsius"] == 25.0
     assert (job / "artifacts" / "results.csv").is_file()
     assert not marker.exists()
     assert not (job / "runner-input").exists()
     assert not (job / "runner-output").exists()
     heartbeat = json.loads((tmp_path / "state" / "dispatcher.json").read_text())
     assert heartbeat["status"] == "idle"
-    assert heartbeat["runner_image_digest"] == RUNNER_IMAGE_ID[:19]
+    assert heartbeat["runner_image_id"] == RUNNER_IMAGE_ID
     assert heartbeat["jobs_claimed_total"] == 0
     assert heartbeat["last_error_code"] is None
 
@@ -166,6 +171,39 @@ def test_dispatcher_records_timeout_and_does_not_execute_twice(
     assert json.loads((job / "summary.json").read_text())["error"] == "simulation_timeout"
     heartbeat = json.loads((tmp_path / "state" / "dispatcher.json").read_text())
     assert heartbeat["last_error_code"] == "simulation_timeout"
+
+
+def test_dispatcher_requires_existing_spool_state(tmp_path: Path) -> None:
+    for name in ("queued", "claimed", "jobs"):
+        path = tmp_path / name
+        path.mkdir()
+        os.chmod(path, 0o2770)  # noqa: S103 - mirrors group-only production spool mode
+    os.chmod(tmp_path, 0o2770)  # noqa: S103 - mirrors group-only production spool mode
+    dispatcher = Dispatcher(tmp_path, RUNNER_IMAGE_ID)
+    with pytest.raises(ValueError):
+        dispatcher.run()
+
+
+@pytest.mark.parametrize(
+    "netlist",
+    [
+        "V1 in 0 1\nR1 in out 1k\n.OPTIONS DEVICE TEMP=25\n"
+        ".OPTIONS DEVICE TEMP=30\n.TRAN 1u 1m\n"
+        ".PRINT TRAN FORMAT=CSV V(out)\n.END\n",
+        "V1 in 0 1\nR1 in out 1k\n.MODEL N NMOS (LEVEL=1 UNKNOWN=1)\n.TRAN 1u 1m\n"
+        ".PRINT TRAN FORMAT=CSV V(out)\n.END\n",
+        "V1 in 0 1\nR1 in out 1k\n.INCLUDE secret.cir\n.TRAN 1u 1m\n"
+        ".PRINT TRAN FORMAT=CSV V(out)\n.END\n",
+    ],
+)
+def test_runner_revalidates_scientific_subset(netlist: str, tmp_path: Path) -> None:
+    source = tmp_path / "source.cir"
+    prepared = tmp_path / "prepared.cir"
+    output = tmp_path / "output" / "results.csv"
+    output.parent.mkdir()
+    source.write_text(netlist, encoding="utf-8")
+    with pytest.raises(ValueError):
+        prepare_netlist(source, prepared, output, "tran")
 
 
 @pytest.mark.parametrize(

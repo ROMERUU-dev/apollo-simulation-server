@@ -19,6 +19,8 @@ ACTIVE_STATES = {"queued", "running"}
 MIN_DURATION_TAU_RATIO: Final = 0.01
 MAX_DURATION_TAU_RATIO: Final = 1000.0
 MAX_NUMERIC_REPRESENTATION: Final = 32
+MIN_TEMPERATURE_CELSIUS: Final = -100.0
+MAX_TEMPERATURE_CELSIUS: Final = 200.0
 
 
 class RcParameters(BaseModel):
@@ -69,6 +71,7 @@ class JobCreateRequest(BaseModel):
     parameters: RcParameters | None = None
     netlist: str | None = None
     requested_outputs: list[str] | None = Field(default=None, max_length=MAX_OUTPUTS)
+    temperature_celsius: float | None = Field(default=None, strict=True)
 
     @field_validator("name", mode="before")
     @classmethod
@@ -82,6 +85,24 @@ class JobCreateRequest(BaseModel):
             return "Xyce simulation"
         return normalized
 
+    @field_validator("temperature_celsius", mode="before")
+    @classmethod
+    def validate_temperature(cls, value: object) -> object:
+        if value is None:
+            return value
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("temperature must be a JSON number")
+        if len(str(value)) > MAX_NUMERIC_REPRESENTATION:
+            raise ValueError("temperature representation is too long")
+        numeric = float(value)
+        if (
+            not math.isfinite(numeric)
+            or numeric < MIN_TEMPERATURE_CELSIUS
+            or numeric > MAX_TEMPERATURE_CELSIUS
+        ):
+            raise ValueError("temperature is outside the supported range")
+        return value
+
     @model_validator(mode="after")
     def validate_template_parameters(self) -> JobCreateRequest:
         supplied = "parameters" in self.model_fields_set
@@ -90,7 +111,9 @@ class JobCreateRequest(BaseModel):
         if self.template_id == PARAM_TEMPLATE_ID and self.parameters is None:
             raise ValueError("parameterized template requires parameters")
         custom_fields = (
-            "netlist" in self.model_fields_set or "requested_outputs" in self.model_fields_set
+            "netlist" in self.model_fields_set
+            or "requested_outputs" in self.model_fields_set
+            or "temperature_celsius" in self.model_fields_set
         )
         if self.template_id != CUSTOM_TEMPLATE_ID and custom_fields:
             raise ValueError("legacy template does not accept custom fields")
@@ -101,9 +124,11 @@ class JobCreateRequest(BaseModel):
                 or self.requested_outputs is None
             ):
                 raise ValueError("custom template requires netlist and requested outputs")
-            parsed = parse_netlist(self.netlist, self.requested_outputs)
+            temperature = 25.0 if self.temperature_celsius is None else self.temperature_celsius
+            parsed = parse_netlist(self.netlist, self.requested_outputs, temperature)
             object.__setattr__(self, "netlist", parsed.normalized)
             object.__setattr__(self, "requested_outputs", list(parsed.outputs))
+            object.__setattr__(self, "temperature_celsius", parsed.temperature_celsius)
         return self
 
 
@@ -119,6 +144,7 @@ class StoredJobRequest(BaseModel):
     parameters: RcParameters | None = None
     netlist: str | None = None
     requested_outputs: list[str] | None = None
+    temperature_celsius: float | None = None
     idempotency_key_hash: str | None = None
     body_hash: str | None = None
     created_at: datetime
@@ -131,7 +157,9 @@ class StoredJobRequest(BaseModel):
         if self.template_id == PARAM_TEMPLATE_ID and self.parameters is None:
             raise ValueError("parameterized stored request requires parameters")
         custom_fields = (
-            "netlist" in self.model_fields_set or "requested_outputs" in self.model_fields_set
+            "netlist" in self.model_fields_set
+            or "requested_outputs" in self.model_fields_set
+            or "temperature_celsius" in self.model_fields_set
         )
         if self.template_id != CUSTOM_TEMPLATE_ID and custom_fields:
             raise ValueError("legacy stored request does not accept custom fields")
@@ -140,6 +168,7 @@ class StoredJobRequest(BaseModel):
                 "parameters" in self.model_fields_set
                 or self.netlist is None
                 or self.requested_outputs is None
+                or self.temperature_celsius is None
             ):
                 raise ValueError("custom stored request is incomplete")
             parse_netlist(self.netlist, self.requested_outputs)
@@ -180,6 +209,7 @@ class JobSummary(BaseModel):
     derived: DerivedMetrics | None = None
     analysis: Literal["tran", "dc", "ac"] | None = None
     columns: list[str] | None = None
+    temperature_celsius: float | None = None
 
 
 class JobResponse(BaseModel):
@@ -213,4 +243,5 @@ class NetlistPreflightResponse(BaseModel):
     models: int
     subcircuits: int
     outputs: list[str]
+    temperature_celsius: float
     sandbox_ready: bool

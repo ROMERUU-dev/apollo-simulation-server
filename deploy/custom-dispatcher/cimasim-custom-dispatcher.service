@@ -1,6 +1,8 @@
 [Unit]
 Description=CimaSim custom Xyce rootless dispatcher
 After=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
