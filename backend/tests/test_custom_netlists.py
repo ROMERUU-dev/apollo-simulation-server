@@ -11,7 +11,11 @@ from hypothesis import strategies as st
 from pydantic import ValidationError
 
 from cimasim_api.config import Settings
-from cimasim_api.custom_netlists.parser import NetlistValidationError, parse_netlist
+from cimasim_api.custom_netlists.parser import (
+    NORMALIZED_TITLE,
+    NetlistValidationError,
+    parse_netlist,
+)
 from cimasim_api.jobs.models import JobCreateRequest, StoredJobRequest
 
 TRAN = """* bounded custom transient
@@ -60,6 +64,26 @@ def test_parses_supported_analyses_and_replaces_print(netlist: str, analysis: st
     assert "FORMAT=CSV" in parsed.normalized
     if analysis == "dc":
         assert ".PRINT DC FORMAT=CSV V1 V(out)" in parsed.normalized
+
+
+def test_normalized_netlist_uses_fixed_synthetic_title() -> None:
+    parsed = parse_netlist(
+        """* user supplied project title
+* user@example.invalid job_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+V1 in 0 1
+R1 in out 1k
+.TRAN 1u 1m
+.END
+""",
+        ["V(out)"],
+        25.0,
+    )
+    lines = parsed.normalized.splitlines()
+    assert lines[0] == NORMALIZED_TITLE
+    assert lines[1] == "V1 in 0 1"
+    assert "user supplied project title" not in parsed.normalized
+    assert "user@example.invalid" not in parsed.normalized
+    assert "job_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" not in parsed.normalized
 
 
 @pytest.mark.parametrize(

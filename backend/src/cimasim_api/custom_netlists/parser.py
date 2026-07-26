@@ -16,6 +16,7 @@ MAX_MODEL_NAME_CHARS: Final = 64
 MAX_SUBCIRCUITS: Final = 32
 MAX_SUBCIRCUIT_DEPTH: Final = 8
 MAX_OUTPUTS: Final = 64
+NORMALIZED_TITLE: Final = "* CimaSim normalized custom netlist"
 DEVICE_PREFIXES: Final = frozenset("RCLVIDQMJBSEFGHWX")
 SAFE_DIRECTIVES: Final = frozenset(
     {
@@ -129,7 +130,7 @@ def parse_netlist(
     nodes: set[str] = set()
     device_count = model_count = subckt_count = depth = temp_count = 0
     dc_axis: str | None = None
-    normalized_lines: list[str] = []
+    normalized_lines: list[str] = [NORMALIZED_TITLE]
     requested_temp = _validate_temperature(temperature_celsius)
 
     for line_number, text in logical:
@@ -195,7 +196,7 @@ def parse_netlist(
         raise NetlistValidationError("TOPOLOGY_LIMIT")
     if model_count > MAX_MODELS or subckt_count > MAX_SUBCIRCUITS:
         raise NetlistValidationError("DEFINITION_LIMIT")
-    if not normalized_lines or normalized_lines[-1].upper() != ".END":
+    if len(normalized_lines) < 2 or normalized_lines[-1].upper() != ".END":
         raise NetlistValidationError("END_REQUIRED")
     if requested_temp is not None:
         normalized_lines.insert(-1, f".OPTIONS DEVICE TEMP={_format_temperature(requested_temp)}")

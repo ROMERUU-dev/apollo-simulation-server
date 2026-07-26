@@ -65,6 +65,20 @@ def test_results_accept_descending_dc_axis(tmp_path: Path) -> None:
 def test_runner_adds_only_the_fixed_internal_output_path(tmp_path: Path) -> None:
     source = tmp_path / "source.cir"
     prepared = tmp_path / "prepared.cir"
+    source.write_text(
+        "V1 in 0 1\nR1 in out 1k\n.OPTIONS DEVICE TEMP=25\n"
+        ".TRAN 1u 1m\n.PRINT TRAN FORMAT=CSV V(out)\n.END\n",
+        encoding="utf-8",
+    )
+    assert prepare_netlist(source, prepared, expected_analysis="tran") == "tran"
+    rendered = prepared.read_text(encoding="utf-8")
+    assert "FILE=/output/results.csv" in rendered
+    assert ".INCLUDE" not in rendered
+
+
+def test_runner_honors_explicit_output_path_for_host_gate(tmp_path: Path) -> None:
+    source = tmp_path / "source.cir"
+    prepared = tmp_path / "prepared.cir"
     output = tmp_path / "output" / "results.csv"
     output.parent.mkdir()
     source.write_text(
@@ -73,9 +87,7 @@ def test_runner_adds_only_the_fixed_internal_output_path(tmp_path: Path) -> None
         encoding="utf-8",
     )
     assert prepare_netlist(source, prepared, output, "tran") == "tran"
-    rendered = prepared.read_text(encoding="utf-8")
-    assert "FILE=/output/results.csv" in rendered
-    assert ".INCLUDE" not in rendered
+    assert f"FILE={output}" in prepared.read_text(encoding="utf-8")
 
 
 def test_runner_rejects_analysis_mismatch(tmp_path: Path) -> None:

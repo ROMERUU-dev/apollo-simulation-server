@@ -40,9 +40,7 @@ def prepare_netlist(
         raise ValueError("analysis mismatch")
     if output_path.exists() or output_path.parent.is_symlink() or prepared_path.is_symlink():
         raise ValueError("invalid output")
-    fixed_print = f".PRINT {analysis.upper()} FORMAT=CSV FILE=/output/results.csv " + " ".join(
-        tokens[3:]
-    )
+    fixed_print = f".PRINT {analysis.upper()} FORMAT=CSV FILE={output_path} " + " ".join(tokens[3:])
     prepared = netlist.replace(print_lines[0], fixed_print, 1)
     prepared_path.write_text(prepared, encoding="utf-8")
     os.chmod(prepared_path, 0o600)
