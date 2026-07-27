@@ -9,12 +9,23 @@ from cimasim_custom_runner.results import ResultValidationError, validate_result
 from cimasim_custom_runner.runner import prepare_netlist
 
 RUNNER_IMAGE_ID = "sha256:" + "a" * 64
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_podman_command_is_fixed_and_isolated(tmp_path: Path) -> None:
-    command = podman_command(tmp_path / "input", tmp_path / "output", "tran", RUNNER_IMAGE_ID)
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "output"
+    command = podman_command(input_dir, output_dir, "tran", RUNNER_IMAGE_ID)
     joined = " ".join(command)
-    assert command[0:3] == ["podman", "run", "--rm"]
+    assert command[0] == "podman"
+    assert command.index("--cgroup-manager=cgroupfs") < command.index("run")
+    assert command.count("run") == 1
+    assert command[0:4] == ["podman", "--cgroup-manager=cgroupfs", "run", "--rm"]
+    assert command.count("--uts=host") == 1
+    assert "--hostname" not in command
+    assert "--cgroups=disabled" not in command
+    assert not any(item.startswith("--cgroup-conf") for item in command)
+    assert not any(item.startswith("--cgroup-parent") for item in command)
     assert "--network=none" in command
     assert "--userns=keep-id:uid=10005,gid=10005" in command
     assert "--read-only" in command
@@ -23,9 +34,62 @@ def test_podman_command_is_fixed_and_isolated(tmp_path: Path) -> None:
     assert "--memory=1g" in command
     assert "--cpus=1" in command
     assert "--pids-limit=64" in command
+    assert "--tmpfs=/tmp:rw,size=64m,noexec,nosuid,nodev" in command
+    assert "--ulimit=nofile=256:256" in command
+    assert f"--volume={input_dir}:/input:ro,Z" in command
+    assert f"--volume={output_dir}:/output:rw,Z" in command
     assert RUNNER_IMAGE_ID in command
+    assert command[command.index(RUNNER_IMAGE_ID) + 1 :] == ["--analysis", "tran"]
     assert "docker.sock" not in joined
     assert "--privileged" not in command
+    assert "--network=host" not in command
+
+
+def test_custom_dispatcher_systemd_unit_keeps_validated_hardening() -> None:
+    unit = (
+        REPO_ROOT / "deploy" / "custom-dispatcher" / "cimasim-custom-dispatcher.service"
+    )
+    properties: dict[str, list[str]] = {}
+    for raw_line in unit.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("[") or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        properties.setdefault(key, []).append(value)
+
+    assert properties["ProtectHome"] == ["no"]
+    assert properties["InaccessiblePaths"] == ["/home /root"]
+    assert properties["ProtectHostname"] == ["yes"]
+    assert properties["ProtectControlGroups"] == ["yes"]
+    assert properties["Delegate"] == ["yes"]
+    assert properties["CPUAccounting"] == ["yes"]
+    assert properties["MemoryAccounting"] == ["yes"]
+    assert properties["TasksAccounting"] == ["yes"]
+    assert properties["MemoryMax"] == ["1073741824"]
+    assert properties["CPUQuota"] == ["100%"]
+    assert properties["TasksMax"] == ["64"]
+    assert properties["ReadWritePaths"] == [
+        "/var/lib/cimasim-custom-spool /var/lib/cimasim-runner /run/user/997"
+    ]
+    assert set(properties["ReadWritePaths"][0].split()) == {
+        "/var/lib/cimasim-custom-spool",
+        "/var/lib/cimasim-runner",
+        "/run/user/997",
+    }
+
+    text = unit.read_text(encoding="utf-8")
+    assert "ProtectHome=yes" not in text
+    assert "PrivateDevices=no" not in text
+    assert "PrivateNetwork=no" not in text
+    assert "AmbientCapabilities" not in properties
+    assert "RootDirectory" not in properties
+    assert "docker.sock" not in text
+    assert "network host" not in text
+    assert "privileged" not in text
+    capability_sets = properties.get("CapabilityBoundingSet", [])
+    assert not any(value.strip() and value.strip() != "~" for value in capability_sets)
+    bind_paths = " ".join(properties.get("BindPaths", []))
+    assert "apollo" not in bind_paths.lower()
 
 
 @pytest.mark.parametrize(

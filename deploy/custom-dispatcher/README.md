@@ -68,6 +68,27 @@ The service runs as `cimasim-runner`, writes only the custom spool, the runner
 home, and `/run/user/997`, and publishes a sanitized heartbeat at
 `state/dispatcher.json`.
 
+The dispatcher remains rootless. The service uses systemd resource limits as
+the effective enforcement point because this deployment processes only one
+custom job synchronously. The validated limits are:
+
+- `MemoryMax=1073741824`;
+- `CPUQuota=100%`;
+- `TasksMax=64`.
+
+These unit limits cover the dispatcher, Podman, conmon, the runner container,
+Xyce, and any descendants. The Podman command still keeps `--memory=1g`,
+`--cpus=1`, and `--pids-limit=64` as defense-in-depth flags, but host validation
+showed the effective limits come from the systemd service cgroup.
+
+Rootless Podman is launched with `--cgroup-manager=cgroupfs` because the systemd
+cgroup manager could not create a nested scope from this hardened unit. The
+unit keeps `ProtectHostname=yes`; the container uses `--uts=host`, which shares
+the unit's private UTS namespace with the container rather than the global host
+UTS namespace. Attempts to change the hostname remain denied. `ProtectHome=no`
+is required so rootless Podman can access `/run/user/997`; `/home` and `/root`
+remain blocked with `InaccessiblePaths=/home /root`.
+
 Do not enable the service until the 120-second idle gate passes.
 
 ## Disabled staging

@@ -35,8 +35,10 @@ def podman_command(
     image = validate_runner_image_id(runner_image)
     return [
         "podman",
+        "--cgroup-manager=cgroupfs",
         "run",
         "--rm",
+        "--uts=host",
         "--network=none",
         "--userns=keep-id:uid=10005,gid=10005",
         "--read-only",

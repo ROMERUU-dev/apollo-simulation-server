@@ -22,7 +22,8 @@ Delegate=yes
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
-ProtectHome=yes
+ProtectHome=no
+InaccessiblePaths=/home /root
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
@@ -34,6 +35,12 @@ RestrictSUIDSGID=yes
 RestrictRealtime=yes
 RemoveIPC=yes
 ReadWritePaths=/var/lib/cimasim-custom-spool /var/lib/cimasim-runner /run/user/997
+CPUAccounting=yes
+MemoryAccounting=yes
+TasksAccounting=yes
+MemoryMax=1073741824
+CPUQuota=100%
+TasksMax=64
 
 [Install]
 WantedBy=multi-user.target

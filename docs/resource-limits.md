@@ -150,3 +150,12 @@ Any future increase to CimaSim limits should include a host capacity review and 
 The 30-day value is policy for a later reviewed maintenance task; this PR does
 not add a deletion process. Custom capacity is lower priority than critical host
 services and cannot be increased without measurement and Apollo verification.
+
+For the rootless custom dispatcher, the effective CPU, memory, and task limits
+are enforced by the systemd service unit: `CPUQuota=100%`,
+`MemoryMax=1073741824`, and `TasksMax=64`. The dispatcher handles one custom job
+at a time, so those limits cover the dispatcher process, Podman, conmon, the
+runner container, Xyce, and descendants. Podman still receives matching
+`--cpus=1`, `--memory=1g`, and `--pids-limit=64` flags as defense in depth, but
+host diagnostics did not select Podman's internal rootless cgroup as the
+effective enforcement point.
