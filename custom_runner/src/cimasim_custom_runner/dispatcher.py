@@ -310,7 +310,13 @@ def _read_request(path: Path, job_id: str) -> dict[str, object]:
         raise ValueError("invalid request")
     if not isinstance(value["temperature_celsius"], (int, float)):
         raise ValueError("invalid request")
-    value["analysis"] = revalidate(value["netlist"], value["requested_outputs"])
+    if value["template_id"] == sky130.TEMPLATE_ID:
+        # This netlist legitimately contains .lib, which the free-form
+        # custom validator blocks by design. sky130 jobs are TRAN-only and
+        # their parameters are independently revalidated in _execute.
+        value["analysis"] = "tran"
+    else:
+        value["analysis"] = revalidate(value["netlist"], value["requested_outputs"])
     return value
 
 

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from cimasim_custom_runner import sky130
-from cimasim_custom_runner.dispatcher import podman_command
+from cimasim_custom_runner.dispatcher import Dispatcher, _read_request, podman_command
 
 RUNNER_IMAGE_ID = "sha256:" + "a" * 64
 
@@ -156,3 +156,101 @@ def test_runner_builds_from_params_and_ignores_any_supplied_netlist(tmp_path: Pa
     assert "/etc/shadow" not in text
     assert text == GOLDEN.replace("/output/results.csv", str(out))
     assert oct(os.stat(prepared).st_mode)[-3:] == "600"
+
+
+def prepare_claimed_sky130_job(root: Path) -> tuple[Path, Path]:
+    """Mirrors test_security.prepare_claimed_job, but for a real sky130 job:
+    a request.json holding the actual server-generated netlist (with .lib),
+    exercised through the real Dispatcher._execute -> _read_request path.
+    This is the integration point the bug lived in: _read_request used to
+    revalidate() *every* netlist through the free-form custom validator,
+    which blocks .lib unconditionally -- so every sky130 job silently died
+    inside _read_request before "request" was even assigned, leaving the job
+    stuck at "queued" forever with no error surfaced anywhere.
+    """
+    job_id = "job_" + "b" * 32
+    for name in ("queued", "claimed", "jobs", "state"):
+        path = root / name
+        path.mkdir(exist_ok=True)
+        os.chmod(path, 0o2770)  # noqa: S103 - mirrors group-only production spool mode
+    job = root / "jobs" / job_id
+    (job / "artifacts").mkdir(parents=True)
+    params = dict(BASELINE)
+    netlist = sky130.build_netlist(sky130.revalidate_parameters(params), results="results.csv")
+    (job / "request.json").write_text(
+        json.dumps(
+            {
+                "job_id": job_id,
+                "user_id": "opaque-owner",
+                "name": "Oscilador",
+                "template_id": sky130.TEMPLATE_ID,
+                "netlist": netlist,
+                "requested_outputs": list(sky130.OUTPUTS),
+                "temperature_celsius": params["temperature_celsius"],
+                "sky130_parameters": params,
+                "created_at": "2026-07-20T00:00:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+    marker = root / "claimed" / f"{job_id}.json"
+    marker.write_text("{}", encoding="utf-8")
+    return job, marker
+
+
+def test_read_request_does_not_revalidate_sky130_netlist_through_custom_parser(
+    tmp_path: Path,
+) -> None:
+    """The netlist contains .lib, which BLOCKED_DIRECTIVES forbids for the
+    free-form path. _read_request must not run it through revalidate()."""
+    job, _marker = prepare_claimed_sky130_job(tmp_path)
+    value = json.loads((job / "request.json").read_text())
+    assert ".lib" in value["netlist"] or ".LIB" in value["netlist"].upper()
+    parsed = _read_request(job / "request.json", job.name)
+    assert parsed["analysis"] == "tran"
+
+
+def test_sky130_job_reaches_succeeded_through_the_real_dispatcher(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """End-to-end through Dispatcher._execute, not just sky130.py/runner.py
+    in isolation -- this is exactly the path the original bug hid in."""
+    job, marker = prepare_claimed_sky130_job(tmp_path)
+    dispatcher = Dispatcher(tmp_path, RUNNER_IMAGE_ID, pdk_root=Path("/pdks/sky130A"))
+
+    def succeed(_command: list[str]) -> int:
+        (job / "runner-output" / "results.csv").write_text(
+            "TIME,V(VOUT),V(VB),V(VG)\n0,0,0,0\n5e-08,0.1,0.01,0.02\n",
+            encoding="utf-8",
+        )
+        return 0
+
+    monkeypatch.setattr(dispatcher, "_run_podman", succeed)
+    dispatcher._execute(marker)
+
+    status = json.loads((job / "status.json").read_text())
+    assert status["status"] == "succeeded"
+    summary = json.loads((job / "summary.json").read_text())
+    assert summary["error"] is None
+    assert summary["samples"] == 2
+    assert (job / "artifacts" / "results.csv").is_file()
+    assert not marker.exists()
+    heartbeat = json.loads((tmp_path / "state" / "dispatcher.json").read_text())
+    assert heartbeat["status"] == "idle"
+    assert heartbeat["last_error_code"] is None
+
+
+def test_sky130_job_fails_closed_when_dispatcher_lacks_pdk_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    job, marker = prepare_claimed_sky130_job(tmp_path)
+    dispatcher = Dispatcher(tmp_path, RUNNER_IMAGE_ID)  # no pdk_root
+
+    def unexpected_call(_command: list[str]) -> int:
+        raise AssertionError("podman must not run without a configured pdk_root")
+
+    monkeypatch.setattr(dispatcher, "_run_podman", unexpected_call)
+    dispatcher._execute(marker)
+
+    status = json.loads((job / "status.json").read_text())
+    assert status["status"] == "failed"
