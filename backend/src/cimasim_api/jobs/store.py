@@ -109,6 +109,8 @@ class JobStore:
             stored_data["requested_outputs"] = request.requested_outputs
         if request.temperature_celsius is not None:
             stored_data["temperature_celsius"] = request.temperature_celsius
+        if request.sky130_parameters is not None:
+            stored_data["sky130_parameters"] = request.sky130_parameters.model_dump()
         stored = StoredJobRequest.model_validate(stored_data)
         status = JobStatus(
             job_id=job_id,
@@ -126,6 +128,8 @@ class JobStore:
             stored_data.pop("requested_outputs")
         if stored.temperature_celsius is None:
             stored_data.pop("temperature_celsius")
+        if stored.sky130_parameters is None:
+            stored_data.pop("sky130_parameters")
         _atomic_write_json(job_dir / "request.json", stored_data)
         _atomic_write_json(job_dir / "status.json", status.model_dump(mode="json"))
         _atomic_write_json(self.root / "queued" / f"{job_id}.json", {"job_id": job_id})

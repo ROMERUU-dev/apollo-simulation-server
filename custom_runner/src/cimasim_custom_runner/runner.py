@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import signal
 import stat
@@ -8,11 +9,13 @@ import subprocess
 from pathlib import Path
 from typing import Final
 
+from cimasim_custom_runner import sky130
 from cimasim_custom_runner.results import validate_results
 from cimasim_custom_runner.validation import revalidate
 
 XYCE: Final = "/opt/xyce/bin/Xyce"
 INPUT: Final = Path("/input/netlist.cir")
+PARAMS: Final = Path("/input/params.json")
 OUTPUT: Final = Path("/output/results.csv")
 PREPARED: Final = Path("/tmp/netlist.cir")  # noqa: S108 - private bounded runner tmpfs
 TIMEOUT_SECONDS: Final = 60
@@ -45,6 +48,30 @@ def prepare_netlist(
     prepared_path.write_text(prepared, encoding="utf-8")
     os.chmod(prepared_path, 0o600)
     return analysis
+
+
+def prepare_sky130_netlist(
+    params_path: Path = PARAMS,
+    prepared_path: Path = PREPARED,
+    output_path: Path = OUTPUT,
+) -> str:
+    """Rebuild the SKY130 netlist from numeric parameters only.
+
+    The netlist is produced here, by trusted runner code, from a revalidated
+    parameter set. No netlist, directive or path from the request is used, so
+    the free-form netlist policy is irrelevant to this path.
+    """
+    info = params_path.stat(follow_symlinks=False)
+    if not stat.S_ISREG(info.st_mode) or info.st_size > 8 * 1024:
+        raise ValueError("invalid params")
+    params = sky130.revalidate_parameters(json.loads(params_path.read_text(encoding="utf-8")))
+    if output_path.exists() or output_path.parent.is_symlink() or prepared_path.is_symlink():
+        raise ValueError("invalid output")
+    prepared_path.write_text(
+        sky130.build_netlist(params, results=str(output_path)), encoding="utf-8"
+    )
+    os.chmod(prepared_path, 0o600)
+    return "tran"
 
 
 def run_xyce(input_path: Path = PREPARED) -> int:
@@ -82,10 +109,16 @@ def run_xyce(input_path: Path = PREPARED) -> int:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--analysis", choices=("tran", "dc", "ac"), required=True)
+    parser.add_argument("--template", choices=(sky130.TEMPLATE_ID,), default=None)
     args = parser.parse_args()
     try:
-        prepare_netlist(expected_analysis=args.analysis)
-    except (OSError, UnicodeError, ValueError):
+        if args.template == sky130.TEMPLATE_ID:
+            if args.analysis != "tran":
+                raise ValueError("sky130 template is transient only")
+            prepare_sky130_netlist()
+        else:
+            prepare_netlist(expected_analysis=args.analysis)
+    except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
         raise SystemExit(2) from None
     result = run_xyce()
     if result == 0:

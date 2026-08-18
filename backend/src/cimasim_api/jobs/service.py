@@ -10,8 +10,14 @@ from cimasim_api.jobs.errors import (
     IdempotencyConflictError,
     JobLimitExceededError,
     LegacyTemplateDisabledError,
+    Sky130TemplateDisabledError,
 )
-from cimasim_api.jobs.models import CUSTOM_TEMPLATE_ID, JobCreateRequest, JobResponse
+from cimasim_api.jobs.models import (
+    CUSTOM_TEMPLATE_ID,
+    SKY130_TEMPLATE_ID,
+    JobCreateRequest,
+    JobResponse,
+)
 from cimasim_api.jobs.store import JobStore
 from cimasim_api.metrics import record_job_created
 from cimasim_api.models import Identity
@@ -31,12 +37,17 @@ class JobService:
         idempotency_key: str | None,
     ) -> tuple[JobResponse, int]:
         key = _normalize_idempotency_key(idempotency_key)
+        is_sky130 = request.template_id == SKY130_TEMPLATE_ID
+        if is_sky130 and not self.settings.sky130_template_enabled:
+            raise Sky130TemplateDisabledError
         is_custom = request.template_id == CUSTOM_TEMPLATE_ID
         if is_custom and not self.settings.custom_netlists_enabled:
             raise CustomNetlistsDisabledError
-        if not is_custom and not self.settings.allow_legacy_rc_submission:
+        if not is_custom and not is_sky130 and not self.settings.allow_legacy_rc_submission:
             raise LegacyTemplateDisabledError
-        self.store = store_for(self.settings, is_custom)
+        # sky130 jobs share the custom spool: same dispatcher, same hardening.
+        is_custom_spool = is_custom or is_sky130
+        self.store = store_for(self.settings, is_custom_spool)
         self.store.ensure_available()
         with self.store.exclusive_lock():
             if key is not None:
@@ -47,14 +58,14 @@ class JobService:
                     return existing, 200
             per_user_limit = (
                 self.settings.custom_job_active_per_user_limit
-                if is_custom
+                if is_custom_spool
                 else self.settings.job_active_per_user_limit
             )
             if self.store.count_active(identity.user_id) >= per_user_limit:
                 raise JobLimitExceededError
             if self.store.count_active() >= self.settings.job_active_global_limit:
                 raise JobLimitExceededError
-            if is_custom:
+            if is_custom_spool:
                 cutoff = datetime.now(UTC) - timedelta(hours=1)
                 recent = sum(
                     stored.user_id == identity.user_id and status.created_at >= cutoff

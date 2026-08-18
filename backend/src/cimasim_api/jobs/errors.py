@@ -36,6 +36,13 @@ class CustomNetlistsDisabledError(ApiError):
     no_store = True
 
 
+class Sky130TemplateDisabledError(ApiError):
+    status_code = 503
+    code = "SKY130_TEMPLATE_DISABLED"
+    message = "SKY130 template execution is not available."
+    no_store = True
+
+
 class IdempotencyConflictError(ApiError):
     status_code = 409
     code = "idempotency_conflict"

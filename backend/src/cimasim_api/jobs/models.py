@@ -7,12 +7,27 @@ from typing import Final, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from cimasim_api.custom_netlists.parser import MAX_OUTPUTS, parse_netlist
+from cimasim_api.sky130.template import (
+    OUTPUTS as SKY130_OUTPUTS,
+)
+from cimasim_api.sky130.template import (
+    Sky130FloatingBulkParameters,
+)
+from cimasim_api.sky130.template import (
+    build_netlist as build_sky130_netlist,
+)
 
 FIXED_TEMPLATE_ID: Final[Literal["rc_lowpass_fixed_v1"]] = "rc_lowpass_fixed_v1"
 PARAM_TEMPLATE_ID: Final[Literal["rc_lowpass_param_v1"]] = "rc_lowpass_param_v1"
 CUSTOM_TEMPLATE_ID: Final[Literal["custom_xyce_netlist_v1"]] = "custom_xyce_netlist_v1"
+SKY130_TEMPLATE_ID: Final[Literal["sky130_floating_bulk_v1"]] = "sky130_floating_bulk_v1"
 TEMPLATE_ID = FIXED_TEMPLATE_ID
-type TemplateId = Literal["rc_lowpass_fixed_v1", "rc_lowpass_param_v1", "custom_xyce_netlist_v1"]
+type TemplateId = Literal[
+    "rc_lowpass_fixed_v1",
+    "rc_lowpass_param_v1",
+    "custom_xyce_netlist_v1",
+    "sky130_floating_bulk_v1",
+]
 SIMULATOR: Final[Literal["xyce"]] = "xyce"
 TERMINAL_STATES = {"succeeded", "failed", "timed_out"}
 ACTIVE_STATES = {"queued", "running"}
@@ -72,6 +87,7 @@ class JobCreateRequest(BaseModel):
     netlist: str | None = None
     requested_outputs: list[str] | None = Field(default=None, max_length=MAX_OUTPUTS)
     temperature_celsius: float | None = Field(default=None, strict=True)
+    sky130_parameters: Sky130FloatingBulkParameters | None = None
 
     @field_validator("name", mode="before")
     @classmethod
@@ -117,6 +133,18 @@ class JobCreateRequest(BaseModel):
         )
         if self.template_id != CUSTOM_TEMPLATE_ID and custom_fields:
             raise ValueError("legacy template does not accept custom fields")
+        if self.template_id != SKY130_TEMPLATE_ID and self.sky130_parameters is not None:
+            raise ValueError("template does not accept sky130 parameters")
+        if self.template_id == SKY130_TEMPLATE_ID:
+            if self.sky130_parameters is None or "parameters" in self.model_fields_set:
+                raise ValueError("sky130 template requires sky130_parameters")
+            # The netlist is built by trusted server-side code; the request never
+            # carries a netlist, a directive or a filesystem path for this template.
+            object.__setattr__(self, "netlist", build_sky130_netlist(self.sky130_parameters))
+            object.__setattr__(self, "requested_outputs", list(SKY130_OUTPUTS))
+            object.__setattr__(
+                self, "temperature_celsius", self.sky130_parameters.temperature_celsius
+            )
         if self.template_id == CUSTOM_TEMPLATE_ID:
             if (
                 "parameters" in self.model_fields_set
@@ -145,6 +173,7 @@ class StoredJobRequest(BaseModel):
     netlist: str | None = None
     requested_outputs: list[str] | None = None
     temperature_celsius: float | None = None
+    sky130_parameters: Sky130FloatingBulkParameters | None = None
     idempotency_key_hash: str | None = None
     body_hash: str | None = None
     created_at: datetime
@@ -161,6 +190,10 @@ class StoredJobRequest(BaseModel):
             or "requested_outputs" in self.model_fields_set
             or "temperature_celsius" in self.model_fields_set
         )
+        if self.template_id == SKY130_TEMPLATE_ID:
+            if self.sky130_parameters is None or self.netlist is None:
+                raise ValueError("stored sky130 job requires parameters and netlist")
+            return self
         if self.template_id != CUSTOM_TEMPLATE_ID and custom_fields:
             raise ValueError("legacy stored request does not accept custom fields")
         if self.template_id == CUSTOM_TEMPLATE_ID:

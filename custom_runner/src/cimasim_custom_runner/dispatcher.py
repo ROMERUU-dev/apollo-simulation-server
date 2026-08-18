@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final, cast
 
-from cimasim_custom_runner import __version__
+from cimasim_custom_runner import __version__, sky130
 from cimasim_custom_runner.results import validate_results
 from cimasim_custom_runner.validation import revalidate
 
@@ -30,9 +30,21 @@ def validate_runner_image_id(value: str) -> str:
 
 
 def podman_command(
-    input_dir: Path, output_dir: Path, analysis: str, runner_image: str
+    input_dir: Path,
+    output_dir: Path,
+    analysis: str,
+    runner_image: str,
+    template: str | None = None,
+    pdk_root: Path | None = None,
 ) -> list[str]:
     image = validate_runner_image_id(runner_image)
+    extra: list[str] = []
+    if pdk_root is not None:
+        # Only the PDK tree, read-only. Nothing else from the host is exposed.
+        extra.append(f"--volume={pdk_root}:{sky130.PDK_CONTAINER_ROOT}:ro,Z")
+    trailing: list[str] = []
+    if template is not None:
+        trailing = ["--template", template]
     return [
         "podman",
         "--cgroup-manager=cgroupfs",
@@ -51,15 +63,24 @@ def podman_command(
         "--ulimit=nofile=256:256",
         f"--volume={input_dir}:/input:ro,Z",
         f"--volume={output_dir}:/output:rw,Z",
+        *extra,
         image,
         "--analysis",
         analysis,
+        *trailing,
     ]
 
 
 class Dispatcher:
-    def __init__(self, spool: Path, runner_image: str, poll_seconds: float = 2.0) -> None:
+    def __init__(
+        self,
+        spool: Path,
+        runner_image: str,
+        poll_seconds: float = 2.0,
+        pdk_root: Path | None = None,
+    ) -> None:
         self.spool = spool
+        self.pdk_root = pdk_root
         self.runner_image = validate_runner_image_id(runner_image)
         self.poll_seconds = poll_seconds
         self.stopping = False
@@ -121,13 +142,31 @@ class Dispatcher:
             output_dir.mkdir(mode=0o770, exist_ok=False)
             os.chmod(input_dir, 0o770)  # noqa: S103 - job-local runner mount, no setgid
             os.chmod(output_dir, 0o770)  # noqa: S103 - job-local runner mount, no setgid
-            netlist = input_dir / "netlist.cir"
-            netlist.write_text(cast(str, request["netlist"]), encoding="utf-8")
-            os.chmod(netlist, 0o640)
+            template = str(request["template_id"])
+            if template == sky130.TEMPLATE_ID:
+                # The runner rebuilds the netlist from these numbers; no netlist,
+                # directive or path from the request reaches Xyce.
+                if self.pdk_root is None:
+                    raise ValueError("pdk root is not configured")
+                params = sky130.revalidate_parameters(request.get("sky130_parameters"))
+                spec = input_dir / "params.json"
+                spec.write_text(json.dumps(params, sort_keys=True), encoding="utf-8")
+                os.chmod(spec, 0o640)
+                command = podman_command(
+                    input_dir,
+                    output_dir,
+                    analysis,
+                    self.runner_image,
+                    template=template,
+                    pdk_root=self.pdk_root,
+                )
+            else:
+                netlist = input_dir / "netlist.cir"
+                netlist.write_text(cast(str, request["netlist"]), encoding="utf-8")
+                os.chmod(netlist, 0o640)
+                command = podman_command(input_dir, output_dir, analysis, self.runner_image)
             _write_json(job / "status.json", _status(request, "running"))
-            returncode = self._run_podman(
-                podman_command(input_dir, output_dir, analysis, self.runner_image)
-            )
+            returncode = self._run_podman(command)
             if returncode != 0:
                 final = "timed_out" if returncode == 124 else "failed"
                 self.last_error_code = (
@@ -262,7 +301,10 @@ def _read_request(path: Path, job_id: str) -> dict[str, object]:
     }
     if not isinstance(value, dict) or not required <= value.keys():
         raise ValueError("invalid request")
-    if value["job_id"] != job_id or value["template_id"] != "custom_xyce_netlist_v1":
+    if value["job_id"] != job_id or value["template_id"] not in {
+        "custom_xyce_netlist_v1",
+        sky130.TEMPLATE_ID,
+    }:
         raise ValueError("invalid request")
     if not isinstance(value["netlist"], str) or not isinstance(value["requested_outputs"], list):
         raise ValueError("invalid request")
@@ -364,11 +406,19 @@ def main() -> None:
         default=os.environ.get("CIMASIM_CUSTOM_RUNNER_IMAGE_ID", ""),
     )
     parser.add_argument("--poll-seconds", type=float, default=2.0)
+    parser.add_argument(
+        "--pdk-root",
+        type=Path,
+        default=(
+            Path(os.environ["CIMASIM_PDK_ROOT"]) if os.environ.get("CIMASIM_PDK_ROOT") else None
+        ),
+    )
     args = parser.parse_args()
     dispatcher = Dispatcher(
         args.spool_root,
         validate_runner_image_id(args.runner_image_id),
         args.poll_seconds,
+        args.pdk_root,
     )
     signal.signal(signal.SIGTERM, dispatcher.request_stop)
     signal.signal(signal.SIGINT, dispatcher.request_stop)
