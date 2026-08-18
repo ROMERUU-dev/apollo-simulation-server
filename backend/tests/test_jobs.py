@@ -33,6 +33,7 @@ def job_settings(settings: Settings, tmp_path: Path, *, enabled: bool = True) ->
             "job_active_per_user_limit": 2,
             "job_active_global_limit": 20,
             "job_list_limit": 100,
+            "allow_legacy_rc_submission": True,
         }
     )
 

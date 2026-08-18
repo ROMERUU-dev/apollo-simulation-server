@@ -15,6 +15,27 @@ The runtime configuration file lives outside the repository:
 Never print, copy, commit, or paste the real AUD, JWTs, cookies, tokens, or
 captured headers.
 
+For staging, that external file must explicitly keep both submission paths
+closed:
+
+```sh
+CIMASIM_CUSTOM_NETLISTS_ENABLED=false
+CIMASIM_ALLOW_LEGACY_RC_SUBMISSION=false
+```
+
+For a controlled custom-netlist enablement, change only the custom flag in the
+external file:
+
+```sh
+CIMASIM_CUSTOM_NETLISTS_ENABLED=true
+CIMASIM_ALLOW_LEGACY_RC_SUBMISSION=false
+```
+
+Both settings default to `false` if they are absent. Do not print the external
+env file while checking or changing these values. Apply flag changes by
+recreating only the backend `api` service; do not restart the custom dispatcher
+for backend feature-flag changes.
+
 ## Deploy
 
 Use the repository root as the working directory:

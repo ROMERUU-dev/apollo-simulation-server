@@ -5,21 +5,22 @@ The private observability extension is documented in `docs/observability.md`. `/
 ## Scope
 
 This document defines the first safe backend architecture for CimaSim. The
-current phase supports authenticated job APIs backed by a file spool and exactly
-two packaged Xyce templates: `rc_lowpass_fixed_v1` and
-`rc_lowpass_param_v1`. The second template accepts four bounded numeric SI
-values. Neither accepts arbitrary user-provided netlists, models, includes,
-paths, expressions, commands, or sweeps.
+current production phase supports authenticated historical RC jobs backed by a
+file spool. The stacked custom-netlist review adds a separate disabled contract,
+spool, dispatcher, and rootless runner. It accepts only the bounded subset in
+`custom-netlist-supported-syntax.md` and never accepts files, external models,
+includes, paths, plugins, or commands.
 
 The backend must remain isolated from the Apollo PACS/DICOM deployment. CimaSim must not share Docker networks, volumes, databases, credentials, service discovery, or runtime privileges with Apollo.
 
 ## Proposed Components
 
 - FastAPI API service: handles authenticated HTTP requests under `/api`, validates Cloudflare Access JWTs, enforces request limits, and writes audit events.
-- File spool: stores requested fixed-template jobs and state transitions under a dedicated CimaSim-only root such as `/spool`.
-- Worker service: consumes one claimed job at a time, creates per-job temporary directories, applies resource limits, and runs only a bundled authorized RC template through Xyce.
+- Legacy file spool: preserves RC jobs and state transitions under `/spool`.
+- Legacy worker: continues to read and execute historical packaged RC formats.
+- Custom spool and dispatcher: remain separate from the legacy worker and hand one job-local input/output pair to a fixed rootless runner.
 - Metadata store: this phase uses per-job JSON files. PostgreSQL is a future durability option, not an active dependency.
-- Artifact store: this phase stores only `waveform.csv` under the job directory.
+- Artifact store: legacy jobs retain `waveform.csv`; custom jobs use bounded `results.csv`.
 - Log store: records structured job and API logs without tokens, raw Cloudflare Access assertions, or sensitive headers.
 - Admin maintenance tasks: enforce retention, cleanup abandoned temporary directories, and expire old artifacts.
 
@@ -72,13 +73,19 @@ The worker contract should include:
 - no interpolation of user-provided text into shell commands;
 - controlled cleanup after success, failure, timeout, or cancellation.
 
-The current worker executes only `rc_lowpass_fixed_v1` or
+The legacy worker executes only `rc_lowpass_fixed_v1` or
 `rc_lowpass_param_v1`. It independently validates the latter's resistance,
 capacitance, input voltage, duration, time constant, and duration/time-constant
 ratio. It generates the netlist from a packaged template using controlled
 scientific-number formatting. It does not accept a netlist path, netlist text,
 parameters from the environment, simulator selection, includes, model files,
 sweeps, or shell commands from users.
+
+The custom dispatcher never executes a netlist in that worker. It revalidates a
+normalized request and invokes only a fixed rootless Podman command. The runner
+mounts one job input read-only and one empty output directory read-write, uses
+Xyce 7.10 `-norun`, and has no network, Docker socket, full spool, or secrets.
+The feature flag remains false until the host rootless gate passes.
 
 ## Storage Layout
 
@@ -104,7 +111,7 @@ database directories, or Cloudflare tunnel credentials.
 5. FastAPI checks payload size, schema, authorization, quotas, global capacity, and idempotency keys.
 6. FastAPI writes job metadata and queues accepted jobs.
 7. Worker claims one job with an atomic rename and records `running`.
-8. Worker revalidates and runs the selected packaged Xyce template, then stores validated `summary.json` and `waveform.csv`.
+8. The selected legacy worker or custom dispatcher revalidates independently and stores only the corresponding validated CSV and summary.
 9. FastAPI serves job status, logs, and artifacts only to the owning user or authorized administrators.
 
 ## Separation From Apollo

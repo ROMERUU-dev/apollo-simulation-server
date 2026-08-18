@@ -20,7 +20,7 @@ export default function JobsPage() {
     <div>
       <PageHeader
         title="Trabajos"
-        subtitle="Cola persistente de simulaciones RC autorizadas"
+        subtitle="Cola persistente de simulaciones Xyce"
         actions={
           <button
             type="button"
@@ -43,7 +43,7 @@ export default function JobsPage() {
       ) : jobs.length === 0 ? (
         <EmptyState
           title="Aún no tienes trabajos"
-          description="Ejecuta la prueba RC fija para verla en esta cola."
+          description="Envía una netlist compatible para verla en esta cola."
           action={<Link to="/simulations/new">Nueva simulación</Link>}
         />
       ) : (

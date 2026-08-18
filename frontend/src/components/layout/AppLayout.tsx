@@ -68,7 +68,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
           {!collapsed && (
             <div className={styles.brandText}>
               CimaSim
-              <span className={styles.brandSubtitle}>Xyce · plantillas RC seguras</span>
+              <span className={styles.brandSubtitle}>Xyce · ejecución aislada</span>
             </div>
           )}
         </div>

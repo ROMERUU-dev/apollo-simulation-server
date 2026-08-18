@@ -175,16 +175,15 @@ somewhere to go that isn't tied to one simulation.
 
 ## Live job flow
 
-Jobs and results use same-origin `/api/jobs` requests rather than the legacy
-mock services. The client supports exactly `rc_lowpass_fixed_v1` and
-`rc_lowpass_param_v1`, generates one idempotency key per explicit submission,
-polls only non-terminal jobs, validates `waveform.csv`, and renders its complete
-series with ECharts. It does not read authentication cookies or tokens and does
-not persist jobs, responses, parameters, or CSV data in browser storage.
+Jobs and results use same-origin `/api/jobs` requests. New simulation presents a
+lightweight custom Xyce editor, performs bounded preflight, and submits one
+`custom_xyce_netlist_v1` request with one idempotency key per explicit action.
+Execution stays disabled unless backend health reports that the rootless runner
+is available.
 
-The configurable form converts visible capacitance and duration units to four
-numeric SI fields before submission and checks the same ranges and RC ratio as
-the backend. This client validation is for usability; backend and worker
-validation remain authoritative. Projects and the older generic simulation
-wizard remain non-functional placeholders and are not connected to job
-execution.
+The client validates generic `results.csv`, lets the user choose one X axis and
+up to six Y series, and uses the existing ECharts dependency. Existing fixed and
+parameterized RC jobs remain read-only with their original `waveform.csv`
+graphs. The client reads no authentication cookie or token and persists no job,
+netlist, response, idempotency key, or CSV in browser storage. Projects and the
+older generic wizard remain non-functional placeholders.

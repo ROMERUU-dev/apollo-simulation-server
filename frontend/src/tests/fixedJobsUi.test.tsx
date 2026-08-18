@@ -99,8 +99,7 @@ describe('fixed jobs UI', () => {
         </JobsProvider>
       </MemoryRouter>,
     )
-    expect((await screen.findAllByText('RC configurable')).length).toBeGreaterThan(0)
-    expect(screen.getAllByText('Prueba RC fija').length).toBeGreaterThan(0)
+    expect((await screen.findAllByText('Simulación RC heredada')).length).toBeGreaterThan(1)
     expect(screen.getByText('rc_lowpass_param_v1')).toBeInTheDocument()
   })
 
@@ -176,5 +175,44 @@ describe('fixed jobs UI', () => {
     expect(screen.getByText('3.300000e+0 V')).toBeInTheDocument()
     expect(screen.getByText('rc_lowpass_param_v1')).toBeInTheDocument()
     expect(await screen.findByLabelText(/series V\(in\) y V\(out\)/i)).toBeInTheDocument()
+  })
+
+  it('renders generic custom columns and the results.csv download', async () => {
+    const custom = {
+      ...succeededJob,
+      job_id: `job_${'9'.repeat(32)}`,
+      name: 'Transient custom',
+      template_id: 'custom_xyce_netlist_v1',
+      summary: {
+        ...succeededJob.summary,
+        template: 'custom_xyce_netlist_v1',
+        analysis: 'tran',
+        columns: ['TIME', 'V(OUT)', 'I(R1)'],
+        artifacts: [{ filename: 'results.csv', content_type: 'text/csv', size_bytes: 96 }],
+      },
+    }
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(custom))
+      .mockResolvedValueOnce(
+        new Response('TIME,V(OUT),I(R1)\n0,0,0\n0.001,0.5,0.0005\n', {
+          status: 200,
+          headers: { 'content-type': 'text/csv' },
+        }),
+      )
+    render(
+      <MemoryRouter initialEntries={[`/jobs/${custom.job_id}`]}>
+        <Routes>
+          <Route path="/jobs/:jobId" element={<JobDetailPage />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    expect(await screen.findByText('Transient custom')).toBeInTheDocument()
+    expect(await screen.findByText(/2 filas.*3 columnas/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /descargar results.csv/i })).toHaveAttribute(
+      'href',
+      `/api/jobs/${custom.job_id}/artifacts/results.csv`,
+    )
+    expect(screen.getByRole('combobox', { name: /eje x/i })).toHaveValue('0')
+    expect(screen.getAllByText('V(OUT)').length).toBeGreaterThan(1)
   })
 })

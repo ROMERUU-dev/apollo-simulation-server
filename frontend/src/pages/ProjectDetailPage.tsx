@@ -124,7 +124,7 @@ export default function ProjectDetailPage() {
           <section className="card">
             <h2 style={{ fontSize: 16, marginBottom: 10 }}>Simulaciones</h2>
             <p style={{ opacity: 0.6, fontSize: 13 }}>
-              Los proyectos aún no tienen persistencia real. La prueba RC fija se gestiona desde
+              Los proyectos aún no tienen persistencia real. Las simulaciones se gestionan desde
               Trabajos.
             </p>
           </section>

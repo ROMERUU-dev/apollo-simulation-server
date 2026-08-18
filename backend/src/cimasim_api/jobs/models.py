@@ -6,16 +6,21 @@ from typing import Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from cimasim_api.custom_netlists.parser import MAX_OUTPUTS, parse_netlist
+
 FIXED_TEMPLATE_ID: Final[Literal["rc_lowpass_fixed_v1"]] = "rc_lowpass_fixed_v1"
 PARAM_TEMPLATE_ID: Final[Literal["rc_lowpass_param_v1"]] = "rc_lowpass_param_v1"
+CUSTOM_TEMPLATE_ID: Final[Literal["custom_xyce_netlist_v1"]] = "custom_xyce_netlist_v1"
 TEMPLATE_ID = FIXED_TEMPLATE_ID
-type TemplateId = Literal["rc_lowpass_fixed_v1", "rc_lowpass_param_v1"]
+type TemplateId = Literal["rc_lowpass_fixed_v1", "rc_lowpass_param_v1", "custom_xyce_netlist_v1"]
 SIMULATOR: Final[Literal["xyce"]] = "xyce"
 TERMINAL_STATES = {"succeeded", "failed", "timed_out"}
 ACTIVE_STATES = {"queued", "running"}
 MIN_DURATION_TAU_RATIO: Final = 0.01
 MAX_DURATION_TAU_RATIO: Final = 1000.0
 MAX_NUMERIC_REPRESENTATION: Final = 32
+MIN_TEMPERATURE_CELSIUS: Final = -100.0
+MAX_TEMPERATURE_CELSIUS: Final = 200.0
 
 
 class RcParameters(BaseModel):
@@ -61,9 +66,12 @@ class DerivedMetrics(BaseModel):
 class JobCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
-    name: str = Field(default="RC low-pass simulation", max_length=120)
+    name: str = Field(default="Xyce simulation", max_length=120)
     template_id: TemplateId
     parameters: RcParameters | None = None
+    netlist: str | None = None
+    requested_outputs: list[str] | None = Field(default=None, max_length=MAX_OUTPUTS)
+    temperature_celsius: float | None = Field(default=None, strict=True)
 
     @field_validator("name", mode="before")
     @classmethod
@@ -74,8 +82,26 @@ class JobCreateRequest(BaseModel):
             raise ValueError("name must not contain control characters")
         normalized = " ".join(value.strip().split())
         if not normalized:
-            return "RC low-pass simulation"
+            return "Xyce simulation"
         return normalized
+
+    @field_validator("temperature_celsius", mode="before")
+    @classmethod
+    def validate_temperature(cls, value: object) -> object:
+        if value is None:
+            return value
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("temperature must be a JSON number")
+        if len(str(value)) > MAX_NUMERIC_REPRESENTATION:
+            raise ValueError("temperature representation is too long")
+        numeric = float(value)
+        if (
+            not math.isfinite(numeric)
+            or numeric < MIN_TEMPERATURE_CELSIUS
+            or numeric > MAX_TEMPERATURE_CELSIUS
+        ):
+            raise ValueError("temperature is outside the supported range")
+        return value
 
     @model_validator(mode="after")
     def validate_template_parameters(self) -> JobCreateRequest:
@@ -84,6 +110,25 @@ class JobCreateRequest(BaseModel):
             raise ValueError("fixed template does not accept parameters")
         if self.template_id == PARAM_TEMPLATE_ID and self.parameters is None:
             raise ValueError("parameterized template requires parameters")
+        custom_fields = (
+            "netlist" in self.model_fields_set
+            or "requested_outputs" in self.model_fields_set
+            or "temperature_celsius" in self.model_fields_set
+        )
+        if self.template_id != CUSTOM_TEMPLATE_ID and custom_fields:
+            raise ValueError("legacy template does not accept custom fields")
+        if self.template_id == CUSTOM_TEMPLATE_ID:
+            if (
+                "parameters" in self.model_fields_set
+                or self.netlist is None
+                or self.requested_outputs is None
+            ):
+                raise ValueError("custom template requires netlist and requested outputs")
+            temperature = 25.0 if self.temperature_celsius is None else self.temperature_celsius
+            parsed = parse_netlist(self.netlist, self.requested_outputs, temperature)
+            object.__setattr__(self, "netlist", parsed.normalized)
+            object.__setattr__(self, "requested_outputs", list(parsed.outputs))
+            object.__setattr__(self, "temperature_celsius", parsed.temperature_celsius)
         return self
 
 
@@ -97,6 +142,9 @@ class StoredJobRequest(BaseModel):
     simulator: Literal["xyce"] = SIMULATOR
     timeout_seconds: int
     parameters: RcParameters | None = None
+    netlist: str | None = None
+    requested_outputs: list[str] | None = None
+    temperature_celsius: float | None = None
     idempotency_key_hash: str | None = None
     body_hash: str | None = None
     created_at: datetime
@@ -108,6 +156,22 @@ class StoredJobRequest(BaseModel):
             raise ValueError("fixed stored request does not accept parameters")
         if self.template_id == PARAM_TEMPLATE_ID and self.parameters is None:
             raise ValueError("parameterized stored request requires parameters")
+        custom_fields = (
+            "netlist" in self.model_fields_set
+            or "requested_outputs" in self.model_fields_set
+            or "temperature_celsius" in self.model_fields_set
+        )
+        if self.template_id != CUSTOM_TEMPLATE_ID and custom_fields:
+            raise ValueError("legacy stored request does not accept custom fields")
+        if self.template_id == CUSTOM_TEMPLATE_ID:
+            if (
+                "parameters" in self.model_fields_set
+                or self.netlist is None
+                or self.requested_outputs is None
+                or self.temperature_celsius is None
+            ):
+                raise ValueError("custom stored request is incomplete")
+            parse_netlist(self.netlist, self.requested_outputs)
         return self
 
 
@@ -125,7 +189,7 @@ class JobStatus(BaseModel):
 class ArtifactInfo(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    filename: Literal["waveform.csv"]
+    filename: Literal["waveform.csv", "results.csv"]
     content_type: Literal["text/csv"] = "text/csv"
     size_bytes: int
 
@@ -143,6 +207,9 @@ class JobSummary(BaseModel):
     artifacts: list[ArtifactInfo] = Field(default_factory=list)
     parameters: RcParameters | None = None
     derived: DerivedMetrics | None = None
+    analysis: Literal["tran", "dc", "ac"] | None = None
+    columns: list[str] | None = None
+    temperature_celsius: float | None = None
 
 
 class JobResponse(BaseModel):
@@ -166,3 +233,15 @@ class JobListResponse(BaseModel):
 
 class ArtifactListResponse(BaseModel):
     artifacts: list[ArtifactInfo]
+
+
+class NetlistPreflightResponse(BaseModel):
+    valid: Literal[True] = True
+    analysis: Literal["tran", "dc", "ac"]
+    devices: int
+    nodes: int
+    models: int
+    subcircuits: int
+    outputs: list[str]
+    temperature_celsius: float
+    sandbox_ready: bool

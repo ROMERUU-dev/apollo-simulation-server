@@ -23,6 +23,7 @@ export interface CimaSimHealth {
   features: {
     identity?: string
     job_submission?: string
+    custom_netlists?: string
     [key: string]: string | undefined
   }
 }
