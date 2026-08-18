@@ -1,14 +1,23 @@
 import json
 import os
+import stat
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
-from cimasim_custom_runner.dispatcher import Dispatcher, podman_command, validate_runner_image_id
+from cimasim_custom_runner.dispatcher import (
+    Dispatcher,
+    _artifact_group,
+    _publish_artifact,
+    podman_command,
+    validate_runner_image_id,
+)
 from cimasim_custom_runner.results import ResultValidationError, validate_results
 from cimasim_custom_runner.runner import prepare_netlist
 
 RUNNER_IMAGE_ID = "sha256:" + "a" * 64
+ALT_GROUPS = [group for group in os.getgroups() if group != os.getgid()]
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -297,3 +306,135 @@ def test_results_reject_invalid_data(tmp_path: Path, text: str) -> None:
     result.write_text(text, encoding="utf-8")
     with pytest.raises(ResultValidationError):
         validate_results(result, "tran")
+
+
+RESULTS_CSV = "TIME,V(out)\n0,0\n1e-6,0.1\n"
+
+
+def succeeding_run(job: Path) -> Callable[[list[str]], int]:
+    def run(_command: list[str]) -> int:
+        (job / "runner-output" / "results.csv").write_text(RESULTS_CSV, encoding="utf-8")
+        return 0
+
+    return run
+
+
+@pytest.mark.skipif(not ALT_GROUPS, reason="requires a second group to retarget the artifact")
+def test_published_artifact_adopts_artifacts_directory_group(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Reproduces the bug: os.replace kept the runner-output group, locking the API out."""
+    job, marker = prepare_claimed_job(tmp_path)
+    artifacts = job / "artifacts"
+    os.chown(artifacts, -1, ALT_GROUPS[0])
+    dispatcher = Dispatcher(tmp_path, RUNNER_IMAGE_ID)
+    monkeypatch.setattr(dispatcher, "_run_podman", succeeding_run(job))
+
+    dispatcher._execute(marker)
+
+    published = artifacts / "results.csv"
+    info = published.stat(follow_symlinks=False)
+    assert json.loads((job / "status.json").read_text())["status"] == "succeeded"
+    assert stat.S_ISREG(info.st_mode)
+    assert info.st_gid == ALT_GROUPS[0] != os.getgid()
+    assert stat.S_IMODE(info.st_mode) == 0o660
+    assert published.read_text(encoding="utf-8") == RESULTS_CSV
+
+
+def test_artifact_group_selects_the_artifacts_directory_group(tmp_path: Path) -> None:
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    assert _artifact_group(artifacts) == artifacts.stat().st_gid
+
+
+def test_artifact_group_rejects_symlinked_artifacts_directory(tmp_path: Path) -> None:
+    real = tmp_path / "real"
+    real.mkdir()
+    link = tmp_path / "artifacts"
+    link.symlink_to(real, target_is_directory=True)
+    with pytest.raises(ValueError, match="invalid artifacts directory"):
+        _artifact_group(link)
+
+
+def test_artifact_group_rejects_group_the_dispatcher_is_not_in(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    monkeypatch.setattr(os, "getgid", lambda: artifacts.stat().st_gid + 1)
+    monkeypatch.setattr(os, "getgroups", list)
+    with pytest.raises(ValueError, match="does not belong to the artifact group"):
+        _artifact_group(artifacts)
+
+
+def test_publish_artifact_rejects_non_regular_destination(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    source = tmp_path / "results.csv"
+    source.write_text(RESULTS_CSV, encoding="utf-8")
+    destination = artifacts / "results.csv"
+    real_fstat = os.fstat
+
+    def fifo_shaped(descriptor: int) -> os.stat_result:
+        info = real_fstat(descriptor)
+        return os.stat_result((stat.S_IFIFO | 0o660, *tuple(info)[1:]))
+
+    monkeypatch.setattr(os, "fstat", fifo_shaped)
+    with pytest.raises(ValueError, match="not a regular file"):
+        _publish_artifact(source, destination, artifacts.stat().st_gid)
+    assert not destination.exists()
+
+
+def test_dispatcher_fails_closed_when_group_change_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    job, marker = prepare_claimed_job(tmp_path)
+    dispatcher = Dispatcher(tmp_path, RUNNER_IMAGE_ID)
+    monkeypatch.setattr(dispatcher, "_run_podman", succeeding_run(job))
+
+    def denied(*_args: int) -> None:
+        raise PermissionError("group change denied")
+
+    monkeypatch.setattr(os, "fchown", denied)
+    dispatcher._execute(marker)
+
+    assert json.loads((job / "status.json").read_text())["status"] == "failed"
+    assert json.loads((job / "summary.json").read_text())["error"] == "simulation_failed"
+    assert json.loads((job / "summary.json").read_text())["artifacts"] == []
+    assert not (job / "artifacts" / "results.csv").exists()
+    heartbeat = json.loads((tmp_path / "state" / "dispatcher.json").read_text())
+    assert heartbeat["last_error_code"] == "dispatcher_error"
+    assert heartbeat["status"] == "idle"
+
+
+def test_dispatcher_fails_closed_when_mode_change_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    job, marker = prepare_claimed_job(tmp_path)
+    dispatcher = Dispatcher(tmp_path, RUNNER_IMAGE_ID)
+    monkeypatch.setattr(dispatcher, "_run_podman", succeeding_run(job))
+    real_fchmod = os.fchmod
+    real_fchown = os.fchown
+    armed = False
+
+    def arm(descriptor: int, uid: int, group: int) -> None:
+        nonlocal armed
+        armed = True
+        real_fchown(descriptor, uid, group)
+
+    def denied_once(descriptor: int, mode: int) -> None:
+        nonlocal armed
+        if armed:
+            armed = False
+            raise PermissionError("mode change denied")
+        real_fchmod(descriptor, mode)
+
+    monkeypatch.setattr(os, "fchown", arm)
+    monkeypatch.setattr(os, "fchmod", denied_once)
+    dispatcher._execute(marker)
+
+    assert json.loads((job / "status.json").read_text())["status"] == "failed"
+    assert json.loads((job / "summary.json").read_text())["artifacts"] == []
+    assert not (job / "artifacts" / "results.csv").exists()

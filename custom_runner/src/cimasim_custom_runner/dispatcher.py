@@ -138,9 +138,9 @@ class Dispatcher:
 
             source = output_dir / "results.csv"
             samples, columns = validate_results(source, analysis)
-            destination = job / "artifacts" / "results.csv"
-            os.replace(source, destination)
-            os.chmod(destination, 0o660)
+            artifacts = job / "artifacts"
+            destination = artifacts / "results.csv"
+            _publish_artifact(source, destination, _artifact_group(artifacts))
             self._write_terminal(
                 job,
                 request,
@@ -297,6 +297,47 @@ def _write_json(path: Path, value: dict[str, object]) -> None:
         os.chmod(path, 0o660)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _artifact_group(artifacts: Path) -> int:
+    """Return the gid the published artifact must adopt: that of the artifacts directory."""
+    try:
+        info = artifacts.stat(follow_symlinks=False)
+    except OSError as exc:
+        raise ValueError("invalid artifacts directory") from exc
+    if not stat.S_ISDIR(info.st_mode) or artifacts.is_symlink():
+        raise ValueError("invalid artifacts directory")
+    group = info.st_gid
+    if group != os.getgid() and group not in os.getgroups():
+        raise ValueError("dispatcher does not belong to the artifact group")
+    return group
+
+
+def _publish_artifact(source: Path, destination: Path, group: int) -> None:
+    """Move the result into the spool, then force group and mode so the API can read it.
+
+    os.replace keeps the group the file was created with under runner-output, which the
+    API is not a member of, so the group is reapplied explicitly from the descriptor.
+    """
+    os.replace(source, destination)
+    try:
+        descriptor = os.open(destination, os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError:
+        destination.unlink(missing_ok=True)
+        raise
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ValueError("artifact is not a regular file")
+        os.fchown(descriptor, -1, group)
+        os.fchmod(descriptor, 0o660)
+        published = os.fstat(descriptor)
+        if published.st_gid != group or stat.S_IMODE(published.st_mode) != 0o660:
+            raise ValueError("artifact ownership was not applied")
+    except (OSError, ValueError):
+        destination.unlink(missing_ok=True)
+        raise
+    finally:
+        os.close(descriptor)
 
 
 def _require_directory(path: Path) -> None:
