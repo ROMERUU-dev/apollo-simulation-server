@@ -1,6 +1,8 @@
 import pytest
+from conftest import AUDIENCE, FakeJwksFetcher, KeyMaterial, auth_headers, make_client, make_token
 from pydantic import ValidationError
 
+from cimasim_api.config import Settings
 from cimasim_api.jobs.models import (
     CUSTOM_TEMPLATE_ID,
     SKY130_TEMPLATE_ID,
@@ -145,3 +147,50 @@ def test_stored_sky130_job_requires_parameters() -> None:
                 "created_at": "2026-08-18T00:00:00Z",
             }
         )
+
+
+def test_preflight_route_returns_the_generated_netlist_read_only(
+    settings: Settings, fetcher: FakeJwksFetcher, key_material: KeyMaterial
+) -> None:
+    client = make_client(settings.model_copy(update={"sky130_template_enabled": True}), fetcher)
+    token = make_token(key_material, audience=AUDIENCE)
+    response = client.post(
+        "/api/jobs/preflight",
+        headers=auth_headers(token),
+        json={
+            "name": "Oscilador",
+            "template_id": SKY130_TEMPLATE_ID,
+            "sky130_parameters": {},
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["valid"] is True
+    assert body["analysis"] == "tran"
+    assert body["sandbox_ready"] is True
+    assert body["outputs"] == ["V(vout)", "V(vb)", "V(vg)"]
+    assert body["netlist"] is not None
+    assert PDK_CONTAINER_ROOT in body["netlist"]
+    assert "/home/" not in body["netlist"]
+
+
+def test_preflight_route_rejects_a_netlist_or_path_supplied_by_the_client(
+    settings: Settings, fetcher: FakeJwksFetcher, key_material: KeyMaterial
+) -> None:
+    client = make_client(settings.model_copy(update={"sky130_template_enabled": True}), fetcher)
+    token = make_token(key_material, audience=AUDIENCE)
+    for payload in (
+        {"netlist": ".lib /etc/passwd tt\n.END\n"},
+        {"sky130_parameters": {"device": "../../etc/passwd"}},
+    ):
+        response = client.post(
+            "/api/jobs/preflight",
+            headers=auth_headers(token),
+            json={
+                "name": "Oscilador",
+                "template_id": SKY130_TEMPLATE_ID,
+                "sky130_parameters": {},
+                **payload,
+            },
+        )
+        assert response.status_code == 422

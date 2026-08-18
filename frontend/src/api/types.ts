@@ -24,6 +24,7 @@ export interface CimaSimHealth {
     identity?: string
     job_submission?: string
     custom_netlists?: string
+    sky130_template?: string
     [key: string]: string | undefined
   }
 }

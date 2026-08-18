@@ -80,6 +80,7 @@ def test_api_health_returns_limited_authenticated_status(client, key_material) -
             "identity": "available",
             "job_submission": "not_available",
             "custom_netlists": "disabled",
+            "sky130_template": "disabled",
         },
     }
     serialized = response.text.lower()
@@ -176,6 +177,7 @@ def test_api_health_degrades_when_enabled_spool_is_unavailable(
             "identity": "available",
             "job_submission": "temporarily_unavailable",
             "custom_netlists": "disabled",
+            "sky130_template": "disabled",
         },
     }
     assert str(spool) not in response.text

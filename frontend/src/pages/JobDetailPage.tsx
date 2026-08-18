@@ -10,7 +10,7 @@ import { FixedJobStatusBadge } from '../features/jobs/FixedJobStatusBadge'
 import { jobTemplateLabel } from '../features/jobs/jobTemplate'
 import { ResultChart } from '../components/charts/ResultChart'
 import { CustomJobResults } from '../components/charts/CustomJobResults'
-import { CUSTOM_XYCE_TEMPLATE_ID } from '../api/jobTypes'
+import { CUSTOM_XYCE_TEMPLATE_ID, SKY130_TEMPLATE_ID } from '../api/jobTypes'
 import { useJob } from '../hooks/useJobs'
 import { formatBytes, formatDateTime } from '../utils/format'
 
@@ -216,9 +216,44 @@ export default function JobDetailPage() {
         </section>
       )}
 
-      {job.status === 'succeeded' && job.template_id === CUSTOM_XYCE_TEMPLATE_ID && hasResults && (
-        <CustomJobResults jobId={job.job_id} />
+      {job.status === 'succeeded' && job.template_id === SKY130_TEMPLATE_ID && (
+        <section className="fixed-job-parameters-readonly" aria-labelledby="sky130-environment-heading">
+          <h2 id="sky130-environment-heading">Entorno de simulación</h2>
+          <div className="fixed-job-summary-grid">
+            <div className="fixed-job-stat">
+              <span>Simulador</span>
+              <strong>Xyce 7.10</strong>
+            </div>
+            <div className="fixed-job-stat">
+              <span>PDK</span>
+              <strong>SKY130A</strong>
+            </div>
+            <div className="fixed-job-stat">
+              <span>Dispositivo</span>
+              <strong><code>sky130_fd_pr__nfet_g5v0d10v5</code></strong>
+            </div>
+            <div className="fixed-job-stat">
+              <span>Corner</span>
+              <strong>tt</strong>
+            </div>
+            <div className="fixed-job-stat">
+              <span>Temperatura</span>
+              <strong>
+                {job.summary?.temperature_celsius ?? '—'} C
+              </strong>
+            </div>
+          </div>
+          <p className="fixed-job-boundary">
+            El modelo SKY130 declara BSIM4 4.5; Xyce 7.10 lo ejecuta con su
+            implementación BSIM4 mínima soportada (4.6.1). Se conserva como
+            advertencia de procedencia científica, no como error.
+          </p>
+        </section>
       )}
+
+      {job.status === 'succeeded' &&
+        (job.template_id === CUSTOM_XYCE_TEMPLATE_ID || job.template_id === SKY130_TEMPLATE_ID) &&
+        hasResults && <CustomJobResults jobId={job.job_id} />}
 
       <p style={{ marginTop: 24 }}>
         <Link to="/jobs">Volver a trabajos</Link>

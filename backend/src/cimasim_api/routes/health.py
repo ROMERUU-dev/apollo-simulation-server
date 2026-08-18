@@ -90,6 +90,19 @@ def api_health(
             custom_netlists = "temporarily_unavailable"
     else:
         custom_netlists = "disabled"
+    sky130_template = "not_available"
+    if settings.sky130_template_enabled:
+        if custom_subsystem_is_ready(
+            settings.custom_job_spool_root,
+            settings.custom_dispatcher_heartbeat_ttl_seconds,
+        ):
+            sky130_template = "available"
+        else:
+            response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+            response_status = "degraded"
+            sky130_template = "temporarily_unavailable"
+    else:
+        sky130_template = "disabled"
     return FrontendHealthResponse(
         status=response_status,
         service="cimasim",
@@ -97,5 +110,6 @@ def api_health(
             "identity": "available",
             "job_submission": job_submission,
             "custom_netlists": custom_netlists,
+            "sky130_template": sky130_template,
         },
     )

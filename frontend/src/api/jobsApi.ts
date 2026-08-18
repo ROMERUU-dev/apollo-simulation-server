@@ -3,6 +3,7 @@ import {
   FIXED_RC_TEMPLATE_ID,
   PARAM_RC_TEMPLATE_ID,
   CUSTOM_XYCE_TEMPLATE_ID,
+  SKY130_TEMPLATE_ID,
   type ArtifactInfo,
   type ArtifactListResponse,
   type Job,
@@ -13,6 +14,7 @@ import {
   type JobTemplateId,
   type RcParameters,
   type CustomJobCreateRequest,
+  type Sky130JobCreateRequest,
   type NetlistPreflight,
   type TerminalJobStatus,
 } from './jobTypes'
@@ -27,6 +29,7 @@ const TEMPLATE_IDS: JobTemplateId[] = [
   FIXED_RC_TEMPLATE_ID,
   PARAM_RC_TEMPLATE_ID,
   CUSTOM_XYCE_TEMPLATE_ID,
+  SKY130_TEMPLATE_ID,
 ]
 
 export interface JobRequestOptions {
@@ -316,10 +319,10 @@ export async function createRcJob(
   return { job: parseJob(body), recovered: status === 200 }
 }
 
-export async function createCustomJob(
-  request: CustomJobCreateRequest,
+async function createSpoolJob(
+  request: CustomJobCreateRequest | Sky130JobCreateRequest,
   idempotencyKey: string,
-  options: JobRequestOptions = {},
+  options: JobRequestOptions,
 ): Promise<{ job: Job; recovered: boolean }> {
   const { body, status } = await requestJson(
     '/api/jobs',
@@ -340,9 +343,25 @@ export async function createCustomJob(
   return { job: parseJob(body), recovered: status === 200 }
 }
 
-export async function preflightCustomJob(
+export async function createCustomJob(
   request: CustomJobCreateRequest,
+  idempotencyKey: string,
   options: JobRequestOptions = {},
+): Promise<{ job: Job; recovered: boolean }> {
+  return createSpoolJob(request, idempotencyKey, options)
+}
+
+export async function createSky130Job(
+  request: Sky130JobCreateRequest,
+  idempotencyKey: string,
+  options: JobRequestOptions = {},
+): Promise<{ job: Job; recovered: boolean }> {
+  return createSpoolJob(request, idempotencyKey, options)
+}
+
+async function requestPreflight(
+  request: CustomJobCreateRequest | Sky130JobCreateRequest,
+  options: JobRequestOptions,
 ): Promise<NetlistPreflight> {
   const { body } = await requestJson(
     '/api/jobs/preflight',
@@ -360,11 +379,26 @@ export async function preflightCustomJob(
     !Array.isArray(body.outputs) ||
     typeof body.temperature_celsius !== 'number' ||
     !Number.isFinite(body.temperature_celsius) ||
-    typeof body.sandbox_ready !== 'boolean'
+    typeof body.sandbox_ready !== 'boolean' ||
+    ('netlist' in body && body.netlist !== null && typeof body.netlist !== 'string')
   ) {
     throw new ApiError('La API devolvió un preflight inválido.', 'invalid-json')
   }
   return body as unknown as NetlistPreflight
+}
+
+export async function preflightCustomJob(
+  request: CustomJobCreateRequest,
+  options: JobRequestOptions = {},
+): Promise<NetlistPreflight> {
+  return requestPreflight(request, options)
+}
+
+export async function preflightSky130Job(
+  request: Sky130JobCreateRequest,
+  options: JobRequestOptions = {},
+): Promise<NetlistPreflight> {
+  return requestPreflight(request, options)
 }
 
 export async function listJobs(options: JobRequestOptions = {}): Promise<Job[]> {

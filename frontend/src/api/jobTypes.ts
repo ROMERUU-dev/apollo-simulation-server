@@ -1,8 +1,12 @@
 export const FIXED_RC_TEMPLATE_ID = 'rc_lowpass_fixed_v1' as const
 export const PARAM_RC_TEMPLATE_ID = 'rc_lowpass_param_v1' as const
 export const CUSTOM_XYCE_TEMPLATE_ID = 'custom_xyce_netlist_v1' as const
+export const SKY130_TEMPLATE_ID = 'sky130_floating_bulk_v1' as const
 export type JobTemplateId =
-  typeof FIXED_RC_TEMPLATE_ID | typeof PARAM_RC_TEMPLATE_ID | typeof CUSTOM_XYCE_TEMPLATE_ID
+  | typeof FIXED_RC_TEMPLATE_ID
+  | typeof PARAM_RC_TEMPLATE_ID
+  | typeof CUSTOM_XYCE_TEMPLATE_ID
+  | typeof SKY130_TEMPLATE_ID
 
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'timed_out'
 export type TerminalJobStatus = 'succeeded' | 'failed' | 'timed_out'
@@ -78,6 +82,48 @@ export interface CustomJobCreateRequest {
   temperature_celsius: number
 }
 
+// Mirrors backend Sky130FloatingBulkParameters exactly (extra='forbid' there too).
+// device/corner kept as literal unions so the allowlist is visible at the type level.
+export interface Sky130FloatingBulkParameters {
+  device: 'sky130_fd_pr__nfet_g5v0d10v5'
+  corner: 'tt'
+  l_um: number
+  w_um: number
+  nf: number
+  iin_a: number
+  cpar_f: number
+  rgate_ohm: number
+  rbulk_ohm: number
+  cgate_f: number
+  cbulk_f: number
+  temperature_celsius: number
+  tstop_seconds: number
+  output_interval_seconds: number
+}
+
+export const SKY130_DEFAULTS: Sky130FloatingBulkParameters = {
+  device: 'sky130_fd_pr__nfet_g5v0d10v5',
+  corner: 'tt',
+  l_um: 0.5,
+  w_um: 1,
+  nf: 1,
+  iin_a: 100e-9,
+  cpar_f: 1e-12,
+  rgate_ohm: 1e14,
+  rbulk_ohm: 1e14,
+  cgate_f: 1e-15,
+  cbulk_f: 10e-15,
+  temperature_celsius: 27,
+  tstop_seconds: 1e-3,
+  output_interval_seconds: 50e-9,
+}
+
+export interface Sky130JobCreateRequest {
+  name: string
+  template_id: typeof SKY130_TEMPLATE_ID
+  sky130_parameters: Sky130FloatingBulkParameters
+}
+
 export interface NetlistPreflight {
   valid: true
   analysis: 'tran' | 'dc' | 'ac'
@@ -88,6 +134,7 @@ export interface NetlistPreflight {
   outputs: string[]
   temperature_celsius: number
   sandbox_ready: boolean
+  netlist?: string | null
 }
 
 export interface ArtifactListResponse {
